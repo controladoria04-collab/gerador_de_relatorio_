@@ -95,24 +95,37 @@ st.title("Acompanhamento – Controladoria")
 
 st.subheader("Dados gerais")
 
-col1, col2, col3 = st.columns(3)
+col1, col2, col3, col4 = st.columns(4)
 
 with col1:
     data_selecionada = st.date_input(
-        "Data",
+        "Data do acompanhamento",
         value=date.today(),
         format="DD/MM/YYYY"
     )
     data_hora = data_selecionada.strftime("%d/%m/%Y")
 
 with col2:
+    periodo_inicio = st.date_input(
+        "Período inicial",
+        value=date.today(),
+        format="DD/MM/YYYY"
+    )
+
+with col3:
+    periodo_fim = st.date_input(
+        "Período final",
+        value=date.today(),
+        format="DD/MM/YYYY"
+    )
+
+with col4:
     sistema_financeiro = st.selectbox(
         "Sistema Financeiro",
         ["Conta Azul", "Omie"]
     )
 
-with col3:
-    periodo = st.text_input("Período analisado")
+periodo = f"{periodo_inicio.strftime('%d/%m/%Y')} a {periodo_fim.strftime('%d/%m/%Y')}"
 
 setores_selecionados = st.multiselect(
     "Selecione o(s) setor(es)",
