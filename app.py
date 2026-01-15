@@ -5,7 +5,7 @@ import gspread
 from google.oauth2.service_account import Credentials
 
 # =============================
-# CONFIGURAÇÕES GERAIS
+# CONFIGURAÇÕES
 # =============================
 st.set_page_config(page_title="Gerador de Acompanhamento", layout="wide")
 
@@ -60,7 +60,7 @@ def salvar_historico(linhas):
         aba.append_row(linha)
 
 # =============================
-# PDF
+# PDF UTF-8
 # =============================
 class PDF(FPDF):
     def header(self):
@@ -78,75 +78,41 @@ def gerar_pdf(dados):
 
     for bloco in dados:
         pdf.set_font("Arial", "B", 11)
-        pdf.cell(0, 8, bloco["titulo"], ln=True)
+        pdf.multi_cell(0, 8, bloco["titulo"])
 
         pdf.set_font("Arial", size=10)
         for linha in bloco["conteudo"]:
             pdf.multi_cell(0, 6, linha)
         pdf.ln(3)
 
-    return pdf.output(dest="S").encode("latin-1")
+    return pdf.output(dest="S").encode("utf-8")  # UTF-8 agora
 
 # =============================
 # INTERFACE
 # =============================
 st.title("Acompanhamento – Controladoria")
 
-st.subheader("Dados gerais")
-
 col1, col2, col3, col4 = st.columns(4)
-
 with col1:
-    data_acomp = st.date_input(
-        "Data do acompanhamento",
-        date.today(),
-        format="DD/MM/YYYY",
-        key="data_acomp"
-    )
+    data_acomp = st.date_input("Data do acompanhamento", date.today(), format="DD/MM/YYYY", key="data_acomp")
     data_hora = data_acomp.strftime("%d/%m/%Y")
-
 with col2:
-    periodo_inicio = st.date_input(
-        "Período inicial",
-        date.today(),
-        format="DD/MM/YYYY",
-        key="periodo_inicio"
-    )
-
+    periodo_inicio = st.date_input("Período inicial", date.today(), format="DD/MM/YYYY", key="periodo_inicio")
 with col3:
-    periodo_fim = st.date_input(
-        "Período final",
-        date.today(),
-        format="DD/MM/YYYY",
-        key="periodo_fim"
-    )
-
+    periodo_fim = st.date_input("Período final", date.today(), format="DD/MM/YYYY", key="periodo_fim")
 with col4:
-    sistema_financeiro = st.selectbox(
-        "Sistema Financeiro",
-        ["Conta Azul", "Omie"],
-        key="sistema_financeiro"
-    )
+    sistema_financeiro = st.selectbox("Sistema Financeiro", ["Conta Azul", "Omie"], key="sistema_financeiro")
 
 periodo = f"{periodo_inicio.strftime('%d/%m/%Y')} a {periodo_fim.strftime('%d/%m/%Y')}"
-
-setores_selecionados = st.multiselect(
-    "Selecione o(s) setor(es)",
-    SETORES_DISPONIVEIS,
-    key="setores_selecionados"
-)
+setores_selecionados = st.multiselect("Selecione o(s) setor(es)", SETORES_DISPONIVEIS, key="setores_selecionados")
 
 # =============================
-# SETORES E CONTAS
+# CONTAS POR SETOR
 # =============================
 for setor in setores_selecionados:
     st.markdown("---")
     st.subheader(f"Setor: {setor}")
-
-    responsavel = st.text_input(
-        f"Responsável – {setor}",
-        key=f"{setor}_responsavel"
-    )
+    responsavel = st.text_input(f"Responsável – {setor}", key=f"{setor}_responsavel")
 
     if f"contas_{setor}" not in st.session_state:
         st.session_state[f"contas_{setor}"] = []
@@ -155,48 +121,21 @@ for setor in setores_selecionados:
         st.session_state[f"contas_{setor}"].append({})
 
     for i in range(len(st.session_state[f"contas_{setor}"])):
-        tipo_conta = st.selectbox(
-            "Tipo de conta",
-            TIPOS_CONTA,
-            key=f"{setor}_tipo_{i}"
-        )
-        nome_conta = st.text_input(
-            "Nome da conta",
-            key=f"{setor}_nome_{i}"
-        )
-        extrato = st.text_area(
-            "Extrato bancário",
-            key=f"{setor}_extrato_{i}"
-        )
-        conciliacoes = st.text_area(
-            "Conciliações pendentes",
-            key=f"{setor}_conc_{i}"
-        )
+        tipo_conta = st.selectbox("Tipo de conta", TIPOS_CONTA, key=f"{setor}_tipo_{i}")
+        nome_conta = st.text_input("Nome da conta", key=f"{setor}_nome_{i}")
+        extrato = st.text_area("Extrato bancário", key=f"{setor}_extrato_{i}")
+        conciliacoes = st.text_area("Conciliações pendentes", key=f"{setor}_conc_{i}")
 
         saldo_caixa = ""
         if tipo_conta == "Caixa":
-            saldo_caixa = st.text_input(
-                "Saldo do caixa",
-                key=f"{setor}_saldo_{i}"
-            )
+            saldo_caixa = st.text_input("Saldo do caixa", key=f"{setor}_saldo_{i}")
 
-        provisoes = st.selectbox(
-            "Provisões",
-            ["Sim", "Não"],
-            key=f"{setor}_prov_{i}"
-        )
-        documentos = st.selectbox(
-            "Documentos",
-            ["Sim", "Não", "Parcialmente"],
-            key=f"{setor}_doc_{i}"
-        )
-        observacoes = st.text_area(
-            "Observações",
-            key=f"{setor}_obs_{i}"
-        )
+        provisoes = st.selectbox("Provisões", ["Sim", "Não"], key=f"{setor}_prov_{i}")
+        documentos = st.selectbox("Documentos", ["Sim", "Não", "Parcialmente"], key=f"{setor}_doc_{i}")
+        observacoes = st.text_area("Observações", key=f"{setor}_obs_{i}")
 
 # =============================
-# AÇÕES
+# GERAR PDF
 # =============================
 modo_geracao = st.radio(
     "Modo de geração",
