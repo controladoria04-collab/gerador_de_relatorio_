@@ -1,33 +1,282 @@
-{
-  "name": "Python 3",
-  // Or use a Dockerfile or Docker Compose file. More info: https://containers.dev/guide/dockerfile
-  "image": "mcr.microsoft.com/devcontainers/python:1-3.11-bookworm",
-  "customizations": {
-    "codespaces": {
-      "openFiles": [
-        "README.md",
-        "app.py"
-      ]
-    },
-    "vscode": {
-      "settings": {},
-      "extensions": [
-        "ms-python.python",
-        "ms-python.vscode-pylance"
-      ]
+import streamlit as st
+from datetime import datetime, date
+from fpdf import FPDF
+import gspread
+from google.oauth2.service_account import Credentials
+
+# -------------------------------
+# CONFIGURAÇÃO DA PÁGINA
+# -------------------------------
+st.set_page_config(
+    page_title="Gerador de Relatórios – Controladoria",
+    layout="wide"
+)
+
+# -------------------------------
+# CONSTANTES
+# -------------------------------
+ACOMPANHADORA_FIXA = "Isabele Dandara"
+SETOR_FIXO = "Controladoria - Economato"
+NOME_ABA_SHEETS = "Histórico"
+
+SETORES_PADRAO = [
+    "Ass. Comunitária",
+    "Previdência Brasil",
+    "Sinodalidade",
+    "Ass. Missionária",
+    "Construção Igreja",
+    "Discipulado Eusébio",
+    "Discipulado Pacajus",
+    "Discipulado Quixadá",
+    "Fundo dos Necessitados",
+    "Fundo Eclesial",
+    "Instituto Parresia",
+    "Lit. Sacramental",
+    "Oficina Dis. Eusébio",
+    "Oficina Dis. Pacajus",
+    "Oficina Dis. Quixadá",
+    "Promoção Humana",
+    "Seminaristas",
+    "Lançai as Redes"
+]
+
+TIPOS_CONTA = [
+    "Banco",
+    "Caixa",
+    "Maquineta",
+    "Cartão Pré-pago",
+    "Cartão de Crédito"
+]
+
+# -------------------------------
+# GOOGLE SHEETS
+# -------------------------------
+def conectar_sheets():
+    scopes = ["https://www.googleapis.com/auth/spreadsheets"]
+    creds = Credentials.from_service_account_info(
+        st.secrets["google_service_account"],
+        scopes=scopes
+    )
+    client = gspread.authorize(creds)
+    return client
+
+
+def salvar_historico(linha):
+    client = conectar_sheets()
+    planilha = client.open_by_key(st.secrets["SHEET_ID"])
+    aba = planilha.worksheet(NOME_ABA_SHEETS)
+    aba.append_row(linha, value_input_option="USER_ENTERED")
+
+
+# -------------------------------
+# PDF
+# -------------------------------
+class PDF(FPDF):
+    def header(self):
+        self.set_font("Arial", "B", 14)
+        self.cell(0, 10, self.titulo, ln=True)
+        self.ln(4)
+
+
+def gerar_pdf(dados):
+    pdf = PDF()
+    pdf.titulo = dados["titulo"]
+    pdf.add_page()
+    pdf.set_font("Arial", size=10)
+
+    def linha(titulo, valor):
+        pdf.multi_cell(0, 6, f"{titulo}: {valor}")
+        pdf.ln(1)
+
+    linha("Acompanhadora", ACOMPANHADORA_FIXA)
+    linha("Setor", SETOR_FIXO)
+    linha("Sistema financeiro", dados["sistema"])
+    linha("Responsável", dados["responsavel"])
+    linha("Data e hora", dados["data_hora"])
+    linha("Período analisado", f"{dados['periodo_inicio']} a {dados['periodo_fim']}")
+
+    pdf.ln(3)
+    pdf.set_font("Arial", "B", 11)
+    pdf.cell(0, 8, "Contas analisadas", ln=True)
+    pdf.set_font("Arial", size=10)
+
+    for c in dados["contas"]:
+        pdf.ln(2)
+        pdf.set_font("Arial", "B", 10)
+        pdf.cell(0, 6, f"{c['tipo']} – {c['nome']}", ln=True)
+        pdf.set_font("Arial", size=10)
+
+        linha("Extrato bancário", c["extrato"])
+        linha("Conciliações pendentes", c["conciliacoes"])
+
+        if c["tipo"] == "Caixa":
+            linha("Saldo do caixa", c["saldo_caixa"])
+
+        linha("Provisão (contas a pagar)", c["provisao"])
+        linha("Documentos", c["documentos"])
+        linha("Prazo para regularização", c["prazo"])
+        linha("Observações", c["observacoes"])
+
+    return pdf.output(dest="S").encode("latin-1")
+
+
+# -------------------------------
+# INTERFACE
+# -------------------------------
+st.title("📊 Acompanhamento de Setores – Controladoria")
+
+col1, col2, col3 = st.columns(3)
+
+with col1:
+    setores_selecionados = st.multiselect(
+        "Setor analisado",
+        SETORES_PADRAO
+    )
+
+with col2:
+    sistema_financeiro = st.selectbox(
+        "Sistema financeiro analisado",
+        ["Conta Azul", "Omie"]
+    )
+
+with col3:
+    responsavel = st.text_input("Responsável")
+
+st.divider()
+
+col4, col5 = st.columns(2)
+
+with col4:
+    periodo_inicio = st.date_input("Período analisado – início")
+
+with col5:
+    periodo_fim = st.date_input("Período analisado – fim")
+
+st.divider()
+
+# -------------------------------
+# CONTAS
+# -------------------------------
+st.subheader("Contas analisadas")
+
+if "contas" not in st.session_state:
+    st.session_state.contas = []
+
+if st.button("➕ Adicionar conta"):
+    st.session_state.contas.append({})
+
+for i, conta in enumerate(st.session_state.contas):
+    st.markdown(f"### Conta {i + 1}")
+
+    tipo = st.selectbox(
+        "Tipo de conta",
+        TIPOS_CONTA,
+        key=f"tipo_{i}"
+    )
+
+    nome = st.text_input(
+        "Nome da conta",
+        key=f"nome_{i}"
+    )
+
+    extrato = st.selectbox(
+        "Extrato bancário",
+        ["Em dia", "Pendente"],
+        key=f"extrato_{i}"
+    )
+
+    conciliacoes = st.text_input(
+        "Conciliações pendentes",
+        key=f"conc_{i}"
+    )
+
+    saldo_caixa = ""
+    if tipo == "Caixa":
+        saldo_caixa = st.text_input(
+            "Saldo do caixa até o período analisado",
+            key=f"saldo_{i}"
+        )
+
+    provisao = st.selectbox(
+        "Provisão (contas a pagar)",
+        ["Sim", "Não"],
+        key=f"prov_{i}"
+    )
+
+    documentos = st.selectbox(
+        "Documentos",
+        ["Sim", "Não", "Parcialmente"],
+        key=f"doc_{i}"
+    )
+
+    prazo = st.text_input(
+        "Prazo para regularização (dd/mm/aaaa)",
+        key=f"prazo_{i}"
+    )
+
+    observacoes = st.text_area(
+        "Observações",
+        key=f"obs_{i}"
+    )
+
+    st.session_state.contas[i] = {
+        "tipo": tipo,
+        "nome": nome,
+        "extrato": extrato,
+        "conciliacoes": conciliacoes,
+        "saldo_caixa": saldo_caixa,
+        "provisao": provisao,
+        "documentos": documentos,
+        "prazo": prazo,
+        "observacoes": observacoes
     }
-  },
-  "updateContentCommand": "[ -f packages.txt ] && sudo apt update && sudo apt upgrade -y && sudo xargs apt install -y <packages.txt; [ -f requirements.txt ] && pip3 install --user -r requirements.txt; pip3 install --user streamlit; echo '✅ Packages installed and Requirements met'",
-  "postAttachCommand": {
-    "server": "streamlit run app.py --server.enableCORS false --server.enableXsrfProtection false"
-  },
-  "portsAttributes": {
-    "8501": {
-      "label": "Application",
-      "onAutoForward": "openPreview"
-    }
-  },
-  "forwardPorts": [
-    8501
-  ]
-}
+
+    st.divider()
+
+# -------------------------------
+# SALVAR E GERAR
+# -------------------------------
+if st.button("📄 Gerar relatório e salvar histórico"):
+    data_hora = datetime.now().strftime("%d/%m/%Y %H:%M")
+
+    titulo = "Acompanhamento " + " e ".join(setores_selecionados)
+
+    for setor in setores_selecionados:
+        for c in st.session_state.contas:
+            salvar_historico([
+                data_hora,
+                ACOMPANHADORA_FIXA,
+                setor,
+                sistema_financeiro,
+                responsavel,
+                periodo_inicio.strftime("%d/%m/%Y"),
+                periodo_fim.strftime("%d/%m/%Y"),
+                c["tipo"],
+                c["nome"],
+                c["extrato"],
+                c["conciliacoes"],
+                c["saldo_caixa"],
+                c["provisao"],
+                c["documentos"],
+                c["prazo"],
+                c["observacoes"]
+            ])
+
+    pdf_bytes = gerar_pdf({
+        "titulo": titulo,
+        "sistema": sistema_financeiro,
+        "responsavel": responsavel,
+        "data_hora": data_hora,
+        "periodo_inicio": periodo_inicio.strftime("%d/%m/%Y"),
+        "periodo_fim": periodo_fim.strftime("%d/%m/%Y"),
+        "contas": st.session_state.contas
+    })
+
+    st.success("Relatório gerado e histórico salvo com sucesso!")
+
+    st.download_button(
+        "⬇️ Baixar PDF",
+        pdf_bytes,
+        file_name=f"{titulo}.pdf",
+        mime="application/pdf"
+    )
