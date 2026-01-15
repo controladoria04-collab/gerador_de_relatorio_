@@ -4,14 +4,8 @@ from datetime import datetime
 import gspread
 from google.oauth2.service_account import Credentials
 
-# ===============================
-# CONFIGURAÇÃO DA PÁGINA
-# ===============================
 st.set_page_config(page_title="Acompanhamentos - Controladoria", layout="wide")
 
-# ===============================
-# FUNÇÃO PARA EVITAR ERRO DE UNICODE
-# ===============================
 def normalizar(texto):
     if texto is None:
         return ""
@@ -46,34 +40,22 @@ def salvar_historico(linha):
     planilha.sheet1.append_row(linha)
 
 # ===============================
-# SETORES PADRONIZADOS
+# SETORES
 # ===============================
 SETORES = [
-    "Ass. Comunitária",
-    "Previdência Brasil",
-    "Sinodalidade",
-    "Ass. Missionária",
-    "Construção Igreja",
-    "Discipulado Eusébio",
-    "Discipulado Pacajus",
-    "Discipulado Quixadá",
-    "Fundo dos Necessitados",
-    "Fundo Eclesial",
-    "Instituto Parresia",
-    "Lit. Sacramental",
-    "Oficina Dis. Eusébio",
-    "Oficina Dis. Pacajus",
-    "Oficina Dis. Quixadá",
-    "Promoção Humana",
-    "Seminaristas",
+    "Ass. Comunitária", "Previdência Brasil", "Sinodalidade",
+    "Ass. Missionária", "Construção Igreja", "Discipulado Eusébio",
+    "Discipulado Pacajus", "Discipulado Quixadá",
+    "Fundo dos Necessitados", "Fundo Eclesial", "Instituto Parresia",
+    "Lit. Sacramental", "Oficina Dis. Eusébio", "Oficina Dis. Pacajus",
+    "Oficina Dis. Quixadá", "Promoção Humana", "Seminaristas",
     "Lançai as Redes"
 ]
 
 # ===============================
-# TÍTULO
+# CABEÇALHO
 # ===============================
 st.title("📊 Acompanhamento – Controladoria")
-
 st.markdown("**Acompanhadora:** Isabele Dandara  \n**Setor:** Controladoria – Economato")
 
 data_hora = datetime.now().strftime("%d/%m/%Y %H:%M")
@@ -87,7 +69,7 @@ setores_selecionados = st.multiselect(
 dados_setores = []
 
 # ===============================
-# FORMULÁRIO POR SETOR
+# FORMULÁRIO
 # ===============================
 for setor in setores_selecionados:
     st.markdown(f"## 🏢 {setor}")
@@ -97,53 +79,68 @@ for setor in setores_selecionados:
         key=f"resp_{setor}"
     )
 
-    pend_extrato = st.text_area(
-        f"Pendências de extrato bancário – {setor}",
-        key=f"extrato_{setor}"
+    qtd_contas = st.number_input(
+        f"Quantidade de contas analisadas – {setor}",
+        min_value=1,
+        step=1,
+        key=f"qtd_{setor}"
     )
 
-    conciliacoes = st.text_input(
-        f"Meses com conciliação pendente no Conta Azul – {setor}",
-        key=f"conc_{setor}"
-    )
+    contas = []
 
-    saldo_caixa = st.text_input(
-        f"Saldo do caixa até o período analisado – {setor}",
-        key=f"saldo_{setor}"
-    )
+    for i in range(qtd_contas):
+        st.markdown(f"### 💼 Conta {i+1}")
 
-    provisao = st.selectbox(
-        f"Está realizando provisão de contas a pagar?",
-        ["Sim", "Não"],
-        key=f"prov_{setor}"
-    )
+        nome_conta = st.text_input(
+            "Nome da conta",
+            key=f"nome_{setor}_{i}"
+        )
 
-    documentos = st.selectbox(
-        f"Está adicionando documentos?",
-        ["Sim", "Não"],
-        key=f"doc_{setor}"
-    )
+        pend_extrato = st.text_area(
+            "Pendência de extrato",
+            key=f"extrato_{setor}_{i}"
+        )
 
-    observacoes = st.text_area(
-        f"Observações gerais – {setor}",
-        key=f"obs_{setor}"
-    )
+        conciliacoes = st.text_input(
+            "Conciliações pendentes (meses)",
+            key=f"conc_{setor}_{i}"
+        )
 
-    contas = st.text_area(
-        f"Contas analisadas (uma por linha) – {setor}",
-        key=f"contas_{setor}",
-        placeholder="Banco do Brasil\nCaixa\nItaú"
-    )
+        saldo = st.text_input(
+            "Saldo até o período analisado",
+            key=f"saldo_{setor}_{i}"
+        )
+
+        provisao = st.selectbox(
+            "Está realizando provisão de contas a pagar?",
+            ["Sim", "Não"],
+            key=f"prov_{setor}_{i}"
+        )
+
+        documentos = st.selectbox(
+            "Está adicionando documentos?",
+            ["Sim", "Não"],
+            key=f"doc_{setor}_{i}"
+        )
+
+        observacoes = st.text_area(
+            "Observações da conta",
+            key=f"obs_{setor}_{i}"
+        )
+
+        contas.append({
+            "nome": nome_conta,
+            "pend_extrato": pend_extrato,
+            "conciliacoes": conciliacoes,
+            "saldo": saldo,
+            "provisao": provisao,
+            "documentos": documentos,
+            "observacoes": observacoes
+        })
 
     dados_setores.append({
         "setor": setor,
         "responsavel": responsavel,
-        "pend_extrato": pend_extrato,
-        "conciliacoes": conciliacoes,
-        "saldo_caixa": saldo_caixa,
-        "provisao": provisao,
-        "documentos": documentos,
-        "observacoes": observacoes,
         "contas": contas
     })
 
@@ -164,41 +161,38 @@ if st.button("📄 Gerar relatório em PDF"):
         pdf.cell(0, 10, normalizar(titulo), ln=True)
 
         pdf.set_font("Arial", "", 11)
-        pdf.cell(0, 8, f"Acompanhadora: Isabele Dandara", ln=True)
-        pdf.cell(0, 8, f"Setor: Controladoria – Economato", ln=True)
+        pdf.cell(0, 8, "Acompanhadora: Isabele Dandara", ln=True)
+        pdf.cell(0, 8, "Setor: Controladoria – Economato", ln=True)
         pdf.cell(0, 8, f"Data e hora: {data_hora}", ln=True)
         pdf.cell(0, 8, f"Período analisado: {periodo}", ln=True)
 
         for d in dados_setores:
-            pdf.ln(4)
+            pdf.ln(5)
             pdf.set_font("Arial", "B", 12)
             pdf.cell(0, 8, normalizar(d["setor"]), ln=True)
-
             pdf.set_font("Arial", "", 11)
-            pdf.multi_cell(0, 7, normalizar(
-                f"Responsável: {d['responsavel']}\n"
-                f"Pendências de extrato: {d['pend_extrato']}\n"
-                f"Conciliações pendentes: {d['conciliacoes']}\n"
-                f"Saldo de caixa: {d['saldo_caixa']}\n"
-                f"Provisão de contas a pagar: {d['provisao']}\n"
-                f"Adição de documentos: {d['documentos']}\n"
-                f"Contas analisadas:\n{d['contas']}\n"
-                f"Observações:\n{d['observacoes']}"
-            ))
+            pdf.cell(0, 7, f"Responsável: {d['responsavel']}", ln=True)
 
-            salvar_historico([
-                data_hora,
-                periodo,
-                d["setor"],
-                d["responsavel"],
-                d["pend_extrato"],
-                d["conciliacoes"],
-                d["saldo_caixa"],
-                d["provisao"],
-                d["documentos"],
-                d["contas"],
-                d["observacoes"]
-            ])
+            for c in d["contas"]:
+                pdf.ln(3)
+                pdf.set_font("Arial", "B", 11)
+                pdf.cell(0, 7, normalizar(f"Conta: {c['nome']}"), ln=True)
+
+                pdf.set_font("Arial", "", 11)
+                pdf.multi_cell(0, 7, normalizar(
+                    f"Pendência de extrato: {c['pend_extrato']}\n"
+                    f"Conciliações pendentes: {c['conciliacoes']}\n"
+                    f"Saldo: {c['saldo']}\n"
+                    f"Provisão: {c['provisao']}\n"
+                    f"Documentos: {c['documentos']}\n"
+                    f"Observações: {c['observacoes']}"
+                ))
+
+                salvar_historico([
+                    data_hora, periodo, d["setor"], d["responsavel"],
+                    c["nome"], c["pend_extrato"], c["conciliacoes"],
+                    c["saldo"], c["provisao"], c["documentos"], c["observacoes"]
+                ])
 
         pdf_bytes = pdf.output(dest="S")
 
@@ -209,4 +203,4 @@ if st.button("📄 Gerar relatório em PDF"):
             mime="application/pdf"
         )
 
-        st.success("Relatório gerado e salvo no histórico.")
+        st.success("Relatório gerado com contas individualizadas e salvo no histórico.")
