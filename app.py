@@ -3,7 +3,6 @@ from datetime import date
 from fpdf import FPDF
 import gspread
 from google.oauth2.service_account import Credentials
-import os
 
 # =============================
 # CONFIGURAÇÕES GERAIS
@@ -12,17 +11,6 @@ st.set_page_config(page_title="Gerador de Acompanhamento", layout="wide")
 
 ACOMPANHADORA = "Isabele Dandara"
 NOME_ABA = "Histórico"
-
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-FONTE_REGULAR = os.path.join(BASE_DIR, "DejaVuSans.ttf")
-FONTE_BOLD = os.path.join(BASE_DIR, "DejaVuSans-Bold.ttf")
-
-# =============================
-# VALIDAÇÃO DE FONTE
-# =============================
-if not os.path.exists(FONTE_REGULAR) or not os.path.exists(FONTE_BOLD):
-    st.error("❌ Fontes DejaVuSans não encontradas na pasta do projeto.")
-    st.stop()
 
 SETORES_DISPONIVEIS = [
     "Ass. Comunitária",
@@ -75,13 +63,8 @@ def salvar_historico(linhas):
 # PDF
 # =============================
 class PDF(FPDF):
-    def __init__(self):
-        super().__init__()
-        self.add_font("DejaVu", "", FONTE_REGULAR, uni=True)
-        self.add_font("DejaVu", "B", FONTE_BOLD, uni=True)
-
     def header(self):
-        self.set_font("DejaVu", "B", 14)
+        self.set_font("Arial", "B", 14)
         self.cell(0, 10, getattr(self, "title", ""), ln=True, align="C")
         self.ln(5)
 
@@ -91,18 +74,18 @@ def gerar_pdf(dados):
     pdf.set_auto_page_break(auto=True, margin=15)
 
     pdf.add_page()
-    pdf.set_font("DejaVu", size=10)
+    pdf.set_font("Arial", size=10)
 
     for bloco in dados:
-        pdf.set_font("DejaVu", "B", 11)
+        pdf.set_font("Arial", "B", 11)
         pdf.cell(0, 8, bloco["titulo"], ln=True)
 
-        pdf.set_font("DejaVu", size=10)
+        pdf.set_font("Arial", size=10)
         for linha in bloco["conteudo"]:
             pdf.multi_cell(0, 6, linha)
         pdf.ln(3)
 
-    return pdf.output(dest="S")
+    return pdf.output(dest="S").encode("latin-1")
 
 # =============================
 # INTERFACE
