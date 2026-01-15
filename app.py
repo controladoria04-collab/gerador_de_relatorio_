@@ -1,5 +1,5 @@
 import streamlit as st
-from datetime import datetime
+from datetime import date
 from fpdf import FPDF
 import gspread
 from google.oauth2.service_account import Credentials
@@ -71,6 +71,7 @@ class PDF(FPDF):
 
 def gerar_pdf(dados):
     pdf = PDF()
+    pdf.title = "Acompanhamento – Controladoria"
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
     pdf.set_font("Helvetica", size=10)
@@ -95,10 +96,21 @@ st.title("Acompanhamento – Controladoria")
 st.subheader("Dados gerais")
 
 col1, col2, col3 = st.columns(3)
+
 with col1:
-    data_hora = st.text_input("Data e Hora")
+    data_selecionada = st.date_input(
+        "Data",
+        value=date.today(),
+        format="DD/MM/YYYY"
+    )
+    data_hora = data_selecionada.strftime("%d/%m/%Y")
+
 with col2:
-    sistema_financeiro = st.selectbox("Sistema Financeiro", ["Conta Azul", "Omie"])
+    sistema_financeiro = st.selectbox(
+        "Sistema Financeiro",
+        ["Conta Azul", "Omie"]
+    )
+
 with col3:
     periodo = st.text_input("Período analisado")
 
@@ -110,6 +122,9 @@ setores_selecionados = st.multiselect(
 todos_dados_pdf = []
 linhas_sheets = []
 
+# =============================
+# SETORES
+# =============================
 for setor in setores_selecionados:
     st.markdown("---")
     st.subheader(f"Setor: {setor}")
@@ -202,10 +217,26 @@ for setor in setores_selecionados:
         })
 
 # =============================
+# OPÇÕES DE GERAÇÃO
+# =============================
+st.markdown("---")
+st.subheader("Opções de geração")
+
+modo_geracao = st.radio(
+    "Como deseja gerar o relatório?",
+    [
+        "Gerar PDF e salvar no histórico",
+        "Gerar PDF sem salvar no histórico"
+    ]
+)
+
+# =============================
 # AÇÕES
 # =============================
-if st.button("Gerar PDF e Salvar Histórico"):
-    salvar_historico(linhas_sheets)
+if st.button("Gerar PDF"):
+    if modo_geracao == "Gerar PDF e salvar no histórico":
+        salvar_historico(linhas_sheets)
+        st.success("Histórico salvo na planilha com sucesso.")
 
     pdf_bytes = gerar_pdf(todos_dados_pdf)
 
@@ -216,4 +247,4 @@ if st.button("Gerar PDF e Salvar Histórico"):
         mime="application/pdf"
     )
 
-    st.success("Relatório salvo e PDF gerado com sucesso.")
+    st.success("PDF gerado com sucesso.")
