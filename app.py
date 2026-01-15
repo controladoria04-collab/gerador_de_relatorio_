@@ -1,20 +1,18 @@
 import streamlit as st
 from fpdf import FPDF
+from datetime import datetime
 import gspread
 from google.oauth2.service_account import Credentials
-from datetime import datetime
 
 # ===============================
-# CONFIGURAÇÕES INICIAIS
+# CONFIGURAÇÃO DA PÁGINA
 # ===============================
-st.set_page_config(page_title="Gerador de Relatórios", layout="wide")
-st.title("📄 Gerador de Relatórios em PDF")
+st.set_page_config(page_title="Acompanhamentos - Controladoria", layout="wide")
 
 # ===============================
-# FUNÇÃO PARA NORMALIZAR TEXTO
-# (EVITA ERRO DE UNICODE NO PDF)
+# FUNÇÃO PARA EVITAR ERRO DE UNICODE
 # ===============================
-def normalizar_texto(texto):
+def normalizar(texto):
     if texto is None:
         return ""
     return (
@@ -27,106 +25,188 @@ def normalizar_texto(texto):
     )
 
 # ===============================
-# CONEXÃO COM GOOGLE SHEETS
+# GOOGLE SHEETS
 # ===============================
-def conectar_google_sheets():
+def conectar_sheets():
     scopes = [
         "https://www.googleapis.com/auth/spreadsheets",
         "https://www.googleapis.com/auth/drive"
     ]
-
     creds = Credentials.from_service_account_info(
         st.secrets["google_service_account"],
         scopes=scopes
     )
+    return gspread.authorize(creds)
 
-    client = gspread.authorize(creds)
-    return client
+NOME_PLANILHA = "Historico_Acompanhamentos_Controladoria"
 
-# ===============================
-# 🔴 ALTERE AQUI SE NECESSÁRIO
-# Nome exato da planilha no Google Sheets
-# ===============================
-NOME_PLANILHA = "Historico_de_Acompanhamentos"
-
-# ===============================
-# FUNÇÃO PARA SALVAR NO SHEETS
-# ===============================
-def salvar_no_sheets(dados):
-    client = conectar_google_sheets()
+def salvar_historico(linha):
+    client = conectar_sheets()
     planilha = client.open(NOME_PLANILHA)
-    aba = planilha.sheet1
-
-    aba.append_row(dados)
+    planilha.sheet1.append_row(linha)
 
 # ===============================
-# FORMULÁRIO
+# SETORES PADRONIZADOS
 # ===============================
-with st.form("form_relatorio"):
-    nome = st.text_input("Nome do atendido")
-    responsavel = st.text_input("Responsável")
-    acompanhamento = st.text_area("Histórico de acompanhamento")
-    observacoes = st.text_area("Observações")
-    gerar = st.form_submit_button("Gerar PDF")
+SETORES = [
+    "Ass. Comunitária",
+    "Previdência Brasil",
+    "Sinodalidade",
+    "Ass. Missionária",
+    "Construção Igreja",
+    "Discipulado Eusébio",
+    "Discipulado Pacajus",
+    "Discipulado Quixadá",
+    "Fundo dos Necessitados",
+    "Fundo Eclesial",
+    "Instituto Parresia",
+    "Lit. Sacramental",
+    "Oficina Dis. Eusébio",
+    "Oficina Dis. Pacajus",
+    "Oficina Dis. Quixadá",
+    "Promoção Humana",
+    "Seminaristas",
+    "Lançai as Redes"
+]
 
 # ===============================
-# GERAÇÃO DO PDF
+# TÍTULO
 # ===============================
-if gerar:
-    if not nome or not acompanhamento:
-        st.error("Preencha pelo menos o nome e o acompanhamento.")
+st.title("📊 Acompanhamento – Controladoria")
+
+st.markdown("**Acompanhadora:** Isabele Dandara  \n**Setor:** Controladoria – Economato")
+
+data_hora = datetime.now().strftime("%d/%m/%Y %H:%M")
+periodo = st.text_input("📅 Período analisado")
+
+setores_selecionados = st.multiselect(
+    "Selecione o(s) setor(es) analisado(s)",
+    SETORES
+)
+
+dados_setores = []
+
+# ===============================
+# FORMULÁRIO POR SETOR
+# ===============================
+for setor in setores_selecionados:
+    st.markdown(f"## 🏢 {setor}")
+
+    responsavel = st.text_input(
+        f"Responsável pelo acompanhamento – {setor}",
+        key=f"resp_{setor}"
+    )
+
+    pend_extrato = st.text_area(
+        f"Pendências de extrato bancário – {setor}",
+        key=f"extrato_{setor}"
+    )
+
+    conciliacoes = st.text_input(
+        f"Meses com conciliação pendente no Conta Azul – {setor}",
+        key=f"conc_{setor}"
+    )
+
+    saldo_caixa = st.text_input(
+        f"Saldo do caixa até o período analisado – {setor}",
+        key=f"saldo_{setor}"
+    )
+
+    provisao = st.selectbox(
+        f"Está realizando provisão de contas a pagar?",
+        ["Sim", "Não"],
+        key=f"prov_{setor}"
+    )
+
+    documentos = st.selectbox(
+        f"Está adicionando documentos?",
+        ["Sim", "Não"],
+        key=f"doc_{setor}"
+    )
+
+    observacoes = st.text_area(
+        f"Observações gerais – {setor}",
+        key=f"obs_{setor}"
+    )
+
+    contas = st.text_area(
+        f"Contas analisadas (uma por linha) – {setor}",
+        key=f"contas_{setor}",
+        placeholder="Banco do Brasil\nCaixa\nItaú"
+    )
+
+    dados_setores.append({
+        "setor": setor,
+        "responsavel": responsavel,
+        "pend_extrato": pend_extrato,
+        "conciliacoes": conciliacoes,
+        "saldo_caixa": saldo_caixa,
+        "provisao": provisao,
+        "documentos": documentos,
+        "observacoes": observacoes,
+        "contas": contas
+    })
+
+# ===============================
+# GERAR PDF
+# ===============================
+if st.button("📄 Gerar relatório em PDF"):
+    if not setores_selecionados:
+        st.error("Selecione pelo menos um setor.")
     else:
-        data_atual = datetime.now().strftime("%d/%m/%Y")
+        titulo = "Acompanhamento – " + " e ".join(setores_selecionados)
 
-        # ---- SALVAR NO GOOGLE SHEETS ----
-        salvar_no_sheets([
-            data_atual,
-            nome,
-            responsavel,
-            acompanhamento,
-            observacoes
-        ])
-
-        # ---- CRIAÇÃO DO PDF ----
         pdf = FPDF()
         pdf.add_page()
         pdf.set_auto_page_break(auto=True, margin=15)
 
         pdf.set_font("Arial", "B", 14)
-        pdf.cell(0, 10, normalizar_texto("RELATÓRIO DE ACOMPANHAMENTO"), ln=True)
-
-        pdf.ln(5)
+        pdf.cell(0, 10, normalizar(titulo), ln=True)
 
         pdf.set_font("Arial", "", 11)
-        pdf.cell(0, 8, normalizar_texto(f"Data: {data_atual}"), ln=True)
-        pdf.cell(0, 8, normalizar_texto(f"Nome: {nome}"), ln=True)
-        pdf.cell(0, 8, normalizar_texto(f"Responsável: {responsavel}"), ln=True)
+        pdf.cell(0, 8, f"Acompanhadora: Isabele Dandara", ln=True)
+        pdf.cell(0, 8, f"Setor: Controladoria – Economato", ln=True)
+        pdf.cell(0, 8, f"Data e hora: {data_hora}", ln=True)
+        pdf.cell(0, 8, f"Período analisado: {periodo}", ln=True)
 
-        pdf.ln(5)
-
-        pdf.set_font("Arial", "B", 12)
-        pdf.cell(0, 8, normalizar_texto("Histórico de Acompanhamento"), ln=True)
-
-        pdf.set_font("Arial", "", 11)
-        pdf.multi_cell(0, 8, normalizar_texto(acompanhamento))
-
-        pdf.ln(3)
-
-        if observacoes:
+        for d in dados_setores:
+            pdf.ln(4)
             pdf.set_font("Arial", "B", 12)
-            pdf.cell(0, 8, normalizar_texto("Observações"), ln=True)
+            pdf.cell(0, 8, normalizar(d["setor"]), ln=True)
 
             pdf.set_font("Arial", "", 11)
-            pdf.multi_cell(0, 8, normalizar_texto(observacoes))
+            pdf.multi_cell(0, 7, normalizar(
+                f"Responsável: {d['responsavel']}\n"
+                f"Pendências de extrato: {d['pend_extrato']}\n"
+                f"Conciliações pendentes: {d['conciliacoes']}\n"
+                f"Saldo de caixa: {d['saldo_caixa']}\n"
+                f"Provisão de contas a pagar: {d['provisao']}\n"
+                f"Adição de documentos: {d['documentos']}\n"
+                f"Contas analisadas:\n{d['contas']}\n"
+                f"Observações:\n{d['observacoes']}"
+            ))
 
-        # ---- GERAR PDF EM MEMÓRIA (SEM .encode) ----
+            salvar_historico([
+                data_hora,
+                periodo,
+                d["setor"],
+                d["responsavel"],
+                d["pend_extrato"],
+                d["conciliacoes"],
+                d["saldo_caixa"],
+                d["provisao"],
+                d["documentos"],
+                d["contas"],
+                d["observacoes"]
+            ])
+
         pdf_bytes = pdf.output(dest="S")
 
-        # ---- BOTÃO DOWNLOAD ----
-        st.success("Relatório gerado com sucesso!")
         st.download_button(
-            label="📥 Baixar PDF",
-            data=pdf_bytes,
-            file_name=f"relatorio_{nome.replace(' ', '_')}.pdf",
+            "📥 Baixar PDF",
+            pdf_bytes,
+            file_name=f"{titulo.replace(' ', '_')}.pdf",
             mime="application/pdf"
         )
+
+        st.success("Relatório gerado e salvo no histórico.")
