@@ -19,20 +19,23 @@ if "logado" not in st.session_state:
 if not st.session_state["logado"]:
     st.title("Login")
 
-    usuario = st.text_input("Usuário")
-    senha = st.text_input("Senha", type="password")
+    usuario_input = st.text_input("Usuário")
+    senha_input = st.text_input("Senha", type="password")
 
     # Usuários e senhas no secrets
     usuarios = st.secrets["users"]  # Ex.: pedrinha_freitas = { senha = "1234" }
 
-    if st.button("Entrar"):
-        if usuario in usuarios and senha == usuarios[usuario]["senha"]:
+    entrou = st.button("Entrar")
+
+    if entrou:
+        if usuario_input in usuarios and senha_input == usuarios[usuario_input]["senha"]:
             st.session_state["logado"] = True
-            st.session_state["usuario"] = usuario
+            st.session_state["usuario"] = usuario_input
             st.experimental_rerun()
         else:
             st.error("Usuário ou senha incorretos")
-    st.stop()
+
+    st.stop()  # Para não continuar para o app antes do login
 
 # =============================
 # CARREGAR SETORES POR USUÁRIO
