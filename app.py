@@ -1,38 +1,49 @@
 import streamlit as st
 from datetime import date
+from fpdf import FPDF
 import gspread
 from google.oauth2.service_account import Credentials
-from reportlab.lib.pagesizes import A4
-from reportlab.pdfgen import canvas
-from reportlab.lib.units import cm
-from reportlab.lib import colors
-from reportlab.lib.utils import simpleSplit
-import io
 
 # =============================
 # CONFIGURAÇÕES
 # =============================
 st.set_page_config(page_title="Gerador de Acompanhamento", layout="wide")
 
-ACOMPANHADORA = "Isabele Dandara"
+ACOMPANHADORA = "Isabele Dandara"  # nome padrão, aparecerá no PDF
 NOME_ABA = "Histórico"
 
 SETORES_DISPONIVEIS = [
-    "Ass. Comunitária","Previdência Brasil","Sinodalidade","Ass. Missionária",
-    "Construção Igreja","Discipulado Eusébio","Discipulado Pacajus","Discipulado Quixadá",
-    "Fundo dos Necessitados","Fundo Eclesial","Instituto Parresia","Lit. Sacramental",
-    "Oficina Dis. Eusébio","Oficina Dis. Pacajus","Oficina Dis. Quixadá",
-    "Promoção Humana","Seminaristas","Lançai as Redes",
+    "Ass. Comunitária",
+    "Previdência Brasil",
+    "Sinodalidade",
+    "Ass. Missionária",
+    "Construção Igreja",
+    "Discipulado Eusébio",
+    "Discipulado Pacajus",
+    "Discipulado Quixadá",
+    "Fundo dos Necessitados",
+    "Fundo Eclesial",
+    "Instituto Parresia",
+    "Lit. Sacramental",
+    "Oficina Dis. Eusébio",
+    "Oficina Dis. Pacajus",
+    "Oficina Dis. Quixadá",
+    "Promoção Humana",
+    "Seminaristas",
+    "Lançai as Redes",
 ]
 
 TIPOS_CONTA = [
-    "Banco","Caixa","Maquineta","Cartão Pré-pago","Cartão de Crédito",
+    "Banco",
+    "Caixa",
+    "Maquineta",
+    "Cartão Pré-pago",
+    "Cartão de Crédito",
 ]
 
 # =============================
 # GOOGLE SHEETS
 # =============================
-@st.cache_resource
 def conectar_sheets():
     scopes = ["https://www.googleapis.com/auth/spreadsheets"]
     creds = Credentials.from_service_account_info(
@@ -45,207 +56,163 @@ def salvar_historico(linhas):
     client = conectar_sheets()
     planilha = client.open_by_url(st.secrets["SPREADSHEET_URL"])
     aba = planilha.worksheet(NOME_ABA)
-    aba.append_rows(linhas)
-
-# =============================
-# FUNÇÃO DE QUEBRA AUTOMÁTICA
-# =============================
-def draw_paragraph(c, texto, x, y, max_width, font_name="Helvetica", font_size=10, line_height=12):
-    linhas = simpleSplit(texto, font_name, font_size, max_width)
     for linha in linhas:
-        c.drawString(x, y, linha)
-        y -= line_height
-    return y
+        aba.append_row(linha)
 
 # =============================
-# FUNÇÃO PARA GERAR PDF
+# PDF UTF-8
 # =============================
-def gerar_pdf(dados, data_acomp, periodo, sistema):
-    buffer = io.BytesIO()
-    c = canvas.Canvas(buffer, pagesize=A4)
-    largura, altura = A4
+class PDF(FPDF):
+    def header(self):
+        self.set_font("Arial", "B", 14)
+        self.cell(0, 10, getattr(self, "title", ""), ln=True, align="C")
+        self.set_font("Arial", "", 10)
+        self.cell(0, 8, f"Acompanhadora: {getattr(self, 'acompanhadora', '')}", ln=True, align="C")
+        self.ln(5)
 
-    AZUL = colors.HexColor("#0B2C4D")
-    CINZA = colors.HexColor("#F2F2F2")
-    PRETO = colors.black
+def gerar_pdf(dados):
+    pdf = PDF()
+    pdf.title = "Acompanhamento – Controladoria"
+    pdf.acompanhadora = ACOMPANHADORA
+    pdf.set_auto_page_break(auto=True, margin=15)
 
-    margem_x = 2*cm
-    y = altura - 2*cm
-    pagina = 1
+    pdf.add_page()
+    pdf.set_font("Arial", size=10)
 
-    # -----------------------------
-    # Cabeçalho
-    # -----------------------------
-    def cabecalho():
-        nonlocal y
-        c.setFillColor(AZUL)
-        c.rect(0, altura - 3*cm, largura, 3*cm, fill=1)
-        c.setFillColor(colors.white)
-        c.setFont("Helvetica-Bold", 18)
-        c.drawCentredString(largura/2, altura-1.8*cm, "Acompanhamento – Controladoria")
-        c.setFillColor(colors.white)
-        c.setFont("Helvetica", 11)
-        c.drawCentredString(largura/2, altura-2.5*cm, f"Data do acompanhamento: {data_acomp} | Período: {periodo} | Sistema Financeiro: {sistema}")
-        y = altura - 4*cm
-        c.setFillColor(PRETO)
-
-    def rodape():
-        c.setFont("Helvetica", 9)
-        c.drawCentredString(largura/2, 1.2*cm, f"Página {pagina}")
-
-    def nova_pagina():
-        nonlocal y, pagina
-        rodape()
-        c.showPage()
-        pagina += 1
-        cabecalho()
-
-    cabecalho()
-    c.setFont("Helvetica", 10)
-
-    # -----------------------------
-    # Conteúdo por setor
-    # -----------------------------
     for bloco in dados:
-        altura_estimada = 1.2*cm + len(bloco["conteudo"])*0.5*cm
+        pdf.set_font("Arial", "B", 11)
+        pdf.multi_cell(0, 8, bloco["titulo"])
+        pdf.ln(2)
 
-        # Quebra de página se necessário
-        if y - altura_estimada < 2.5*cm:
-            nova_pagina()
+        pdf.set_font("Arial", size=10)
+        for pergunta, resposta in bloco["conteudo"].items():
+            if resposta:  # só adiciona se tiver conteúdo
+                pdf.set_font("Arial", "B", 10)
+                pdf.multi_cell(0, 6, f"{pergunta}:")
+                pdf.set_font("Arial", "", 10)
+                pdf.multi_cell(0, 6, str(resposta))
+                pdf.ln(2)
+        pdf.ln(3)  # espaço entre blocos
 
-        # Nome do setor
-        c.setFont("Helvetica-Bold", 12)
-        y = draw_paragraph(c, bloco["setor"], margem_x, y, largura - 4*cm, font_size=12, line_height=14)
-        y -= 0.3*cm
-
-        # Cada pergunta/resposta
-        for item in bloco["conteudo"]:
-            pergunta = item["pergunta"]
-            resposta = item["resposta"]
-
-            # Card da pergunta
-            c.setFillColor(CINZA)
-            altura_card = 1*cm + resposta.count("\n")*0.5*cm + 1*cm
-            c.roundRect(margem_x, y - altura_card, largura - 4*cm, altura_card, 5, fill=1)
-            c.setFillColor(PRETO)
-
-            # Pergunta
-            y -= 0.5*cm
-            c.setFont("Helvetica-Bold", 11)
-            y = draw_paragraph(c, pergunta, margem_x + 0.3*cm, y, largura - 4.5*cm, font_size=11, line_height=13)
-
-            # Resposta
-            c.setFont("Helvetica", 10)
-            y = draw_paragraph(c, resposta, margem_x + 0.5*cm, y, largura - 5*cm)
-            y -= 0.5*cm  # espaço entre perguntas
-
-        y -= 0.8*cm  # espaço entre setores
-
-    rodape()
-    c.save()
-    buffer.seek(0)
-    return buffer.getvalue()
+    return pdf.output(dest="S").encode("latin1")  # UTF-8/Latin1 para compatibilidade
 
 # =============================
-# INTERFACE STREAMLIT
+# INTERFACE
 # =============================
 st.title("Acompanhamento – Controladoria")
 
 col1, col2, col3, col4 = st.columns(4)
 with col1:
-    data_acomp = st.date_input("Data do acompanhamento", date.today(), format="DD/MM/YYYY")
+    data_acomp = st.date_input("Data do acompanhamento", date.today(), format="DD/MM/YYYY", key="data_acomp")
     data_hora = data_acomp.strftime("%d/%m/%Y")
 with col2:
-    periodo_inicio = st.date_input("Período inicial", date.today(), format="DD/MM/YYYY")
+    periodo_inicio = st.date_input("Período inicial", date.today(), format="DD/MM/YYYY", key="periodo_inicio")
 with col3:
-    periodo_fim = st.date_input("Período final", date.today(), format="DD/MM/YYYY")
+    periodo_fim = st.date_input("Período final", date.today(), format="DD/MM/YYYY", key="periodo_fim")
 with col4:
-    sistema_financeiro = st.selectbox("Sistema Financeiro", ["Conta Azul","Omie"])
+    sistema_financeiro = st.selectbox("Sistema Financeiro", ["Conta Azul", "Omie"], key="sistema_financeiro")
 
 periodo = f"{periodo_inicio.strftime('%d/%m/%Y')} a {periodo_fim.strftime('%d/%m/%Y')}"
-setores_selecionados = st.multiselect("Selecione o(s) setor(es)", SETORES_DISPONIVEIS)
+setores_selecionados = st.multiselect("Selecione o(s) setor(es)", SETORES_DISPONIVEIS, key="setores_selecionados")
 
-# -----------------------------
-# Campos por setor
-# -----------------------------
+# =============================
+# CONTAS POR SETOR
+# =============================
 for setor in setores_selecionados:
     st.markdown("---")
     st.subheader(f"Setor: {setor}")
-
-    st.text_input(f"Responsável – {setor}", key=f"{setor}_responsavel")
+    responsavel = st.text_input(f"Responsável – {setor}", key=f"{setor}_responsavel")
 
     if f"contas_{setor}" not in st.session_state:
         st.session_state[f"contas_{setor}"] = []
 
-    if st.button(f"Adicionar conta – {setor}", key=f"add_{setor}"):
+    if st.button(f"Adicionar conta – {setor}", key=f"botao_add_{setor}"):
         st.session_state[f"contas_{setor}"].append({})
 
     for i in range(len(st.session_state[f"contas_{setor}"])):
-        st.selectbox("Tipo de conta", TIPOS_CONTA, key=f"{setor}_tipo_{i}")
-        st.text_input("Nome da conta", key=f"{setor}_nome_{i}")
-        st.text_area("Extrato bancário", key=f"{setor}_extrato_{i}")
-        st.text_area("Conciliações pendentes", key=f"{setor}_conc_{i}")
+        tipo_conta = st.selectbox("Tipo de conta", TIPOS_CONTA, key=f"{setor}_tipo_{i}")
+        nome_conta = st.text_input("Nome da conta", key=f"{setor}_nome_{i}")
 
-        if st.session_state.get(f"{setor}_tipo_{i}") == "Caixa":
-            st.text_input("Saldo do caixa", key=f"{setor}_saldo_{i}")
+        # Se for Caixa, exibe saldo do caixa, oculta extrato
+        saldo_caixa = ""
+        extrato = ""
+        if tipo_conta == "Caixa":
+            saldo_caixa = st.text_input("Saldo do caixa", key=f"{setor}_saldo_{i}")
+        else:
+            extrato = st.text_area("Extrato bancário", key=f"{setor}_extrato_{i}")
 
-        st.selectbox("Provisões", ["Sim","Não"], key=f"{setor}_prov_{i}")
-        st.selectbox("Documentos", ["Sim","Não","Parcialmente"], key=f"{setor}_doc_{i}")
-        st.text_area("Observações", key=f"{setor}_obs_{i}")
+        conciliacoes = st.text_area("Conciliações pendentes", key=f"{setor}_conc_{i}")
 
-# -----------------------------
-# Gerar PDF
-# -----------------------------
+        # Campos que iniciam vazios
+        provisoes = st.selectbox("Provisões", ["Sim", "Não"], index=None, key=f"{setor}_prov_{i}")
+        documentos = st.selectbox("Documentos", ["Sim", "Não", "Parcialmente"], index=None, key=f"{setor}_doc_{i}")
+        observacoes = st.text_area("Observações", key=f"{setor}_obs_{i}")
+
+# =============================
+# GERAR PDF
+# =============================
 modo_geracao = st.radio(
     "Modo de geração",
-    ["Gerar PDF e salvar no histórico","Gerar PDF sem salvar no histórico"]
+    ["Gerar PDF e salvar no histórico", "Gerar PDF sem salvar no histórico"],
+    key="modo_geracao"
 )
 
-if st.button("Gerar PDF"):
-    dados_pdf = []
+if st.button("Gerar PDF", key="botao_gerar_pdf"):
+    todos_dados_pdf = []
     linhas_sheets = []
 
     for setor in setores_selecionados:
-        responsavel = st.session_state.get(f"{setor}_responsavel","")
+        responsavel = st.session_state.get(f"{setor}_responsavel", "")
 
-        for i in range(len(st.session_state.get(f"contas_{setor}",[]))):
-            # Cada pergunta/resposta em bloco
-            bloco = {
-                "setor": setor,
-                "conteudo": [
-                    {"pergunta":"Responsável", "resposta":responsavel},
-                    {"pergunta":"Tipo de conta", "resposta":st.session_state.get(f"{setor}_tipo_{i}","")},
-                    {"pergunta":"Nome da conta", "resposta":st.session_state.get(f"{setor}_nome_{i}","")},
-                    {"pergunta":"Extrato bancário", "resposta":st.session_state.get(f"{setor}_extrato_{i}","")},
-                    {"pergunta":"Conciliações pendentes", "resposta":st.session_state.get(f"{setor}_conc_{i}","")},
-                    {"pergunta":"Saldo do caixa", "resposta":st.session_state.get(f"{setor}_saldo_{i}","")},
-                    {"pergunta":"Provisões", "resposta":st.session_state.get(f"{setor}_prov_{i}","")},
-                    {"pergunta":"Documentos", "resposta":st.session_state.get(f"{setor}_doc_{i}","")},
-                    {"pergunta":"Observações", "resposta":st.session_state.get(f"{setor}_obs_{i}","")},
-                ]
-            }
-            dados_pdf.append(bloco)
+        for i in range(len(st.session_state.get(f"contas_{setor}", []))):
+            tipo_conta = st.session_state.get(f"{setor}_tipo_{i}", "")
+            nome_conta = st.session_state.get(f"{setor}_nome_{i}", "")
+            extrato = st.session_state.get(f"{setor}_extrato_{i}", "")
+            conciliacoes = st.session_state.get(f"{setor}_conc_{i}", "")
+            saldo_caixa = st.session_state.get(f"{setor}_saldo_{i}", "")
+            provisoes = st.session_state.get(f"{setor}_prov_{i}", "")
+            documentos = st.session_state.get(f"{setor}_doc_{i}", "")
+            observacoes = st.session_state.get(f"{setor}_obs_{i}", "")
 
             linhas_sheets.append([
-                data_hora, ACOMPANHADORA, setor, sistema_financeiro, responsavel, periodo,
-                st.session_state.get(f"{setor}_tipo_{i}",""),
-                st.session_state.get(f"{setor}_nome_{i}",""),
-                st.session_state.get(f"{setor}_extrato_{i}",""),
-                st.session_state.get(f"{setor}_conc_{i}",""),
-                st.session_state.get(f"{setor}_saldo_{i}",""),
-                st.session_state.get(f"{setor}_prov_{i}",""),
-                st.session_state.get(f"{setor}_doc_{i}",""),
-                st.session_state.get(f"{setor}_obs_{i}",""),
+                data_hora,
+                ACOMPANHADORA,
+                setor,
+                sistema_financeiro,
+                responsavel,
+                periodo,
+                tipo_conta,
+                nome_conta,
+                extrato,
+                conciliacoes,
+                saldo_caixa,
+                provisoes,
+                documentos,
+                observacoes,
             ])
 
-    if not dados_pdf:
-        st.error("❌ Nenhum dado preenchido.")
+            todos_dados_pdf.append({
+                "titulo": f"{setor} – {nome_conta}",
+                "conteudo": {
+                    "Responsável": responsavel,
+                    "Tipo de conta": tipo_conta,
+                    "Extrato bancário": extrato if tipo_conta != "Caixa" else "",
+                    "Saldo do caixa": saldo_caixa if tipo_conta == "Caixa" else "",
+                    "Conciliações pendentes": conciliacoes,
+                    "Provisões": provisoes,
+                    "Documentos": documentos,
+                    "Observações": observacoes,
+                }
+            })
+
+    if not todos_dados_pdf:
+        st.error("❌ Nenhum dado preenchido para gerar o PDF.")
         st.stop()
 
     if modo_geracao == "Gerar PDF e salvar no histórico":
         salvar_historico(linhas_sheets)
 
-    pdf_bytes = gerar_pdf(dados_pdf, data_hora, periodo, sistema_financeiro)
+    pdf_bytes = gerar_pdf(todos_dados_pdf)
 
     st.download_button(
         "Baixar PDF",
@@ -254,4 +221,4 @@ if st.button("Gerar PDF"):
         mime="application/pdf"
     )
 
-    st.success("✅ PDF gerado com sucesso.")
+    st.success("PDF gerado com sucesso.")
