@@ -6,6 +6,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from reportlab.lib.units import cm
 from reportlab.lib import colors
+from reportlab.lib.utils import simpleSplit
 import io
 
 # =============================
@@ -17,37 +18,21 @@ ACOMPANHADORA = "Isabele Dandara"
 NOME_ABA = "Histórico"
 
 SETORES_DISPONIVEIS = [
-    "Ass. Comunitária",
-    "Previdência Brasil",
-    "Sinodalidade",
-    "Ass. Missionária",
-    "Construção Igreja",
-    "Discipulado Eusébio",
-    "Discipulado Pacajus",
-    "Discipulado Quixadá",
-    "Fundo dos Necessitados",
-    "Fundo Eclesial",
-    "Instituto Parresia",
-    "Lit. Sacramental",
-    "Oficina Dis. Eusébio",
-    "Oficina Dis. Pacajus",
-    "Oficina Dis. Quixadá",
-    "Promoção Humana",
-    "Seminaristas",
-    "Lançai as Redes",
+    "Ass. Comunitária","Previdência Brasil","Sinodalidade","Ass. Missionária",
+    "Construção Igreja","Discipulado Eusébio","Discipulado Pacajus","Discipulado Quixadá",
+    "Fundo dos Necessitados","Fundo Eclesial","Instituto Parresia","Lit. Sacramental",
+    "Oficina Dis. Eusébio","Oficina Dis. Pacajus","Oficina Dis. Quixadá",
+    "Promoção Humana","Seminaristas","Lançai as Redes",
 ]
 
 TIPOS_CONTA = [
-    "Banco",
-    "Caixa",
-    "Maquineta",
-    "Cartão Pré-pago",
-    "Cartão de Crédito",
+    "Banco","Caixa","Maquineta","Cartão Pré-pago","Cartão de Crédito",
 ]
 
 # =============================
 # GOOGLE SHEETS
 # =============================
+@st.cache_resource
 def conectar_sheets():
     scopes = ["https://www.googleapis.com/auth/spreadsheets"]
     creds = Credentials.from_service_account_info(
@@ -60,13 +45,22 @@ def salvar_historico(linhas):
     client = conectar_sheets()
     planilha = client.open_by_url(st.secrets["SPREADSHEET_URL"])
     aba = planilha.worksheet(NOME_ABA)
-    for linha in linhas:
-        aba.append_row(linha)
+    aba.append_rows(linhas)
 
 # =============================
-# PDF COM LAYOUT PROFISSIONAL
+# FUNÇÃO DE QUEBRA AUTOMÁTICA
 # =============================
-def gerar_pdf(dados):
+def draw_paragraph(c, texto, x, y, max_width, font_name="Helvetica", font_size=10, line_height=12):
+    linhas = simpleSplit(texto, font_name, font_size, max_width)
+    for linha in linhas:
+        c.drawString(x, y, linha)
+        y -= line_height
+    return y
+
+# =============================
+# FUNÇÃO PARA GERAR PDF
+# =============================
+def gerar_pdf(dados, data_acomp, periodo, sistema):
     buffer = io.BytesIO()
     c = canvas.Canvas(buffer, pagesize=A4)
     largura, altura = A4
@@ -75,36 +69,32 @@ def gerar_pdf(dados):
     CINZA = colors.HexColor("#F2F2F2")
     PRETO = colors.black
 
-    margem_x = 2 * cm
-    y = altura - 2 * cm
+    margem_x = 2*cm
+    y = altura - 2*cm
     pagina = 1
 
+    # -----------------------------
+    # Cabeçalho
+    # -----------------------------
     def cabecalho():
         nonlocal y
         c.setFillColor(AZUL)
-        c.rect(0, altura - 3 * cm, largura, 3 * cm, fill=1)
-
+        c.rect(0, altura - 3*cm, largura, 3*cm, fill=1)
         c.setFillColor(colors.white)
         c.setFont("Helvetica-Bold", 18)
-        c.drawCentredString(
-            largura / 2,
-            altura - 1.8 * cm,
-            "Acompanhamento – Controladoria"
-        )
-
-        y = altura - 3.8 * cm
+        c.drawCentredString(largura/2, altura-1.8*cm, "Acompanhamento – Controladoria")
+        c.setFillColor(colors.white)
+        c.setFont("Helvetica", 11)
+        c.drawCentredString(largura/2, altura-2.5*cm, f"Data do acompanhamento: {data_acomp} | Período: {periodo} | Sistema Financeiro: {sistema}")
+        y = altura - 4*cm
         c.setFillColor(PRETO)
 
     def rodape():
         c.setFont("Helvetica", 9)
-        c.drawCentredString(
-            largura / 2,
-            1.2 * cm,
-            f"Página {pagina}"
-        )
+        c.drawCentredString(largura/2, 1.2*cm, f"Página {pagina}")
 
     def nova_pagina():
-        nonlocal pagina, y
+        nonlocal y, pagina
         rodape()
         c.showPage()
         pagina += 1
@@ -113,38 +103,43 @@ def gerar_pdf(dados):
     cabecalho()
     c.setFont("Helvetica", 10)
 
+    # -----------------------------
+    # Conteúdo por setor
+    # -----------------------------
     for bloco in dados:
-        altura_card = 1.2 * cm + (len(bloco["conteudo"]) * 0.5 * cm)
+        altura_estimada = 1.2*cm + len(bloco["conteudo"])*0.5*cm
 
-        if y - altura_card < 2.5 * cm:
+        # Quebra de página se necessário
+        if y - altura_estimada < 2.5*cm:
             nova_pagina()
 
-        # CARD
-        c.setFillColor(CINZA)
-        c.roundRect(
-            margem_x,
-            y - altura_card,
-            largura - (margem_x * 2),
-            altura_card,
-            8,
-            fill=1
-        )
+        # Nome do setor
+        c.setFont("Helvetica-Bold", 12)
+        y = draw_paragraph(c, bloco["setor"], margem_x, y, largura - 4*cm, font_size=12, line_height=14)
+        y -= 0.3*cm
 
-        c.setFillColor(PRETO)
-        y -= 0.6 * cm
+        # Cada pergunta/resposta
+        for item in bloco["conteudo"]:
+            pergunta = item["pergunta"]
+            resposta = item["resposta"]
 
-        # TÍTULO
-        c.setFont("Helvetica-Bold", 11)
-        c.drawString(margem_x + 0.4 * cm, y, bloco["titulo"])
-        y -= 0.6 * cm
+            # Card da pergunta
+            c.setFillColor(CINZA)
+            altura_card = 1*cm + resposta.count("\n")*0.5*cm + 1*cm
+            c.roundRect(margem_x, y - altura_card, largura - 4*cm, altura_card, 5, fill=1)
+            c.setFillColor(PRETO)
 
-        # CONTEÚDO
-        c.setFont("Helvetica", 10)
-        for linha in bloco["conteudo"]:
-            c.drawString(margem_x + 0.6 * cm, y, linha)
-            y -= 0.45 * cm
+            # Pergunta
+            y -= 0.5*cm
+            c.setFont("Helvetica-Bold", 11)
+            y = draw_paragraph(c, pergunta, margem_x + 0.3*cm, y, largura - 4.5*cm, font_size=11, line_height=13)
 
-        y -= 0.5 * cm
+            # Resposta
+            c.setFont("Helvetica", 10)
+            y = draw_paragraph(c, resposta, margem_x + 0.5*cm, y, largura - 5*cm)
+            y -= 0.5*cm  # espaço entre perguntas
+
+        y -= 0.8*cm  # espaço entre setores
 
     rodape()
     c.save()
@@ -152,7 +147,7 @@ def gerar_pdf(dados):
     return buffer.getvalue()
 
 # =============================
-# INTERFACE
+# INTERFACE STREAMLIT
 # =============================
 st.title("Acompanhamento – Controladoria")
 
@@ -165,14 +160,14 @@ with col2:
 with col3:
     periodo_fim = st.date_input("Período final", date.today(), format="DD/MM/YYYY")
 with col4:
-    sistema_financeiro = st.selectbox("Sistema Financeiro", ["Conta Azul", "Omie"])
+    sistema_financeiro = st.selectbox("Sistema Financeiro", ["Conta Azul","Omie"])
 
 periodo = f"{periodo_inicio.strftime('%d/%m/%Y')} a {periodo_fim.strftime('%d/%m/%Y')}"
 setores_selecionados = st.multiselect("Selecione o(s) setor(es)", SETORES_DISPONIVEIS)
 
-# =============================
-# CONTAS POR SETOR
-# =============================
+# -----------------------------
+# Campos por setor
+# -----------------------------
 for setor in setores_selecionados:
     st.markdown("---")
     st.subheader(f"Setor: {setor}")
@@ -194,16 +189,16 @@ for setor in setores_selecionados:
         if st.session_state.get(f"{setor}_tipo_{i}") == "Caixa":
             st.text_input("Saldo do caixa", key=f"{setor}_saldo_{i}")
 
-        st.selectbox("Provisões", ["Sim", "Não"], key=f"{setor}_prov_{i}")
-        st.selectbox("Documentos", ["Sim", "Não", "Parcialmente"], key=f"{setor}_doc_{i}")
+        st.selectbox("Provisões", ["Sim","Não"], key=f"{setor}_prov_{i}")
+        st.selectbox("Documentos", ["Sim","Não","Parcialmente"], key=f"{setor}_doc_{i}")
         st.text_area("Observações", key=f"{setor}_obs_{i}")
 
-# =============================
-# GERAR PDF
-# =============================
+# -----------------------------
+# Gerar PDF
+# -----------------------------
 modo_geracao = st.radio(
     "Modo de geração",
-    ["Gerar PDF e salvar no histórico", "Gerar PDF sem salvar no histórico"]
+    ["Gerar PDF e salvar no histórico","Gerar PDF sem salvar no histórico"]
 )
 
 if st.button("Gerar PDF"):
@@ -211,38 +206,36 @@ if st.button("Gerar PDF"):
     linhas_sheets = []
 
     for setor in setores_selecionados:
-        responsavel = st.session_state.get(f"{setor}_responsavel", "")
+        responsavel = st.session_state.get(f"{setor}_responsavel","")
 
-        for i in range(len(st.session_state.get(f"contas_{setor}", []))):
-            dados_pdf.append({
-                "titulo": f"{setor} – {st.session_state.get(f'{setor}_nome_{i}', '')}",
+        for i in range(len(st.session_state.get(f"contas_{setor}",[]))):
+            # Cada pergunta/resposta em bloco
+            bloco = {
+                "setor": setor,
                 "conteudo": [
-                    f"Responsável: {responsavel}",
-                    f"Tipo de conta: {st.session_state.get(f'{setor}_tipo_{i}', '')}",
-                    f"Extrato bancário: {st.session_state.get(f'{setor}_extrato_{i}', '')}",
-                    f"Conciliações pendentes: {st.session_state.get(f'{setor}_conc_{i}', '')}",
-                    f"Saldo do caixa: {st.session_state.get(f'{setor}_saldo_{i}', '')}",
-                    f"Provisões: {st.session_state.get(f'{setor}_prov_{i}', '')}",
-                    f"Documentos: {st.session_state.get(f'{setor}_doc_{i}', '')}",
-                    f"Observações: {st.session_state.get(f'{setor}_obs_{i}', '')}",
+                    {"pergunta":"Responsável", "resposta":responsavel},
+                    {"pergunta":"Tipo de conta", "resposta":st.session_state.get(f"{setor}_tipo_{i}","")},
+                    {"pergunta":"Nome da conta", "resposta":st.session_state.get(f"{setor}_nome_{i}","")},
+                    {"pergunta":"Extrato bancário", "resposta":st.session_state.get(f"{setor}_extrato_{i}","")},
+                    {"pergunta":"Conciliações pendentes", "resposta":st.session_state.get(f"{setor}_conc_{i}","")},
+                    {"pergunta":"Saldo do caixa", "resposta":st.session_state.get(f"{setor}_saldo_{i}","")},
+                    {"pergunta":"Provisões", "resposta":st.session_state.get(f"{setor}_prov_{i}","")},
+                    {"pergunta":"Documentos", "resposta":st.session_state.get(f"{setor}_doc_{i}","")},
+                    {"pergunta":"Observações", "resposta":st.session_state.get(f"{setor}_obs_{i}","")},
                 ]
-            })
+            }
+            dados_pdf.append(bloco)
 
             linhas_sheets.append([
-                data_hora,
-                ACOMPANHADORA,
-                setor,
-                sistema_financeiro,
-                responsavel,
-                periodo,
-                st.session_state.get(f"{setor}_tipo_{i}", ""),
-                st.session_state.get(f"{setor}_nome_{i}", ""),
-                st.session_state.get(f"{setor}_extrato_{i}", ""),
-                st.session_state.get(f"{setor}_conc_{i}", ""),
-                st.session_state.get(f"{setor}_saldo_{i}", ""),
-                st.session_state.get(f"{setor}_prov_{i}", ""),
-                st.session_state.get(f"{setor}_doc_{i}", ""),
-                st.session_state.get(f"{setor}_obs_{i}", ""),
+                data_hora, ACOMPANHADORA, setor, sistema_financeiro, responsavel, periodo,
+                st.session_state.get(f"{setor}_tipo_{i}",""),
+                st.session_state.get(f"{setor}_nome_{i}",""),
+                st.session_state.get(f"{setor}_extrato_{i}",""),
+                st.session_state.get(f"{setor}_conc_{i}",""),
+                st.session_state.get(f"{setor}_saldo_{i}",""),
+                st.session_state.get(f"{setor}_prov_{i}",""),
+                st.session_state.get(f"{setor}_doc_{i}",""),
+                st.session_state.get(f"{setor}_obs_{i}",""),
             ])
 
     if not dados_pdf:
@@ -252,7 +245,7 @@ if st.button("Gerar PDF"):
     if modo_geracao == "Gerar PDF e salvar no histórico":
         salvar_historico(linhas_sheets)
 
-    pdf_bytes = gerar_pdf(dados_pdf)
+    pdf_bytes = gerar_pdf(dados_pdf, data_hora, periodo, sistema_financeiro)
 
     st.download_button(
         "Baixar PDF",
