@@ -1,11 +1,17 @@
 import os
 import json
 from datetime import date
+import io
 
 import streamlit as st
 import gspread
 from google.oauth2.service_account import Credentials
-from fpdf import FPDF
+
+from reportlab.lib.pagesizes import A4
+from reportlab.pdfgen import canvas
+from reportlab.lib.units import cm
+from reportlab.lib import colors
+from reportlab.lib.utils import simpleSplit
 
 # =============================
 # CONFIGURAÇÕES
@@ -22,22 +28,19 @@ TIPOS_CONTA = [
 
 NOME_ABA = "Histórico"
 
-
+# =============================
+# UTIL
+# =============================
 def normalize_user(s: str) -> str:
-    """Normaliza username pra evitar erro de maiúscula/minúscula, espaços etc."""
     return (s or "").strip().lower()
 
 
-def safe_pdf_text(s: str) -> str:
-    """
-    FPDF clássico (latin-1) pode quebrar com caracteres Unicode (ex: travessão “–”).
-    Aqui a gente força para latin-1 com replace.
-    """
-    return (s or "").encode("latin-1", "replace").decode("latin-1")
+def clean_text(s: str) -> str:
+    # evita caracteres invisíveis que bagunçam quebra de linha
+    return (s or "").replace("\t", " ").replace("\u00A0", " ").replace("\u200b", "").strip()
 
 
 def load_setores_por_usuario() -> dict:
-    """Carrega e normaliza o JSON de setores."""
     base_dir = os.path.dirname(os.path.abspath(__file__))
     json_path = os.path.join(base_dir, "setores_usuarios.json")
 
@@ -48,17 +51,15 @@ def load_setores_por_usuario() -> dict:
     with open(json_path, "r", encoding="utf-8") as f:
         raw = json.load(f)
 
-    # normaliza as chaves do JSON
     return {normalize_user(k): v for k, v in raw.items()}
 
 
 def load_users_from_secrets() -> dict:
-    """Carrega e normaliza os usuários do secrets.toml."""
     if "users" not in st.secrets:
         st.error("❌ 'users' não encontrado no secrets.toml.")
         st.stop()
 
-    raw = st.secrets["users"]  # ex.: Pedrina_Freita = { senha = "123" }
+    raw = st.secrets["users"]
     return {normalize_user(k): v for k, v in raw.items()}
 
 
@@ -88,21 +89,21 @@ if not st.session_state["logado"]:
     st.stop()
 
 # =============================
-# CARREGAR SETORES POR USUÁRIO
+# SETORES POR USUÁRIO
 # =============================
 setores_por_usuario = load_setores_por_usuario()
 usuario_atual = normalize_user(st.session_state.get("usuario", ""))
 
-# Se quiser mostrar o nome bonitinho no PDF/título
 ACOMPANHADORA = usuario_atual.replace("_", " ").title()
-
 setores_disponiveis = setores_por_usuario.get(usuario_atual, [])
+
 if not setores_disponiveis:
     st.warning("⚠️ Nenhum setor encontrado para este usuário (verifique o JSON e o username).")
 
 # =============================
 # GOOGLE SHEETS
 # =============================
+@st.cache_resource
 def conectar_sheets():
     if "gcp_service_account" not in st.secrets:
         st.error("❌ 'gcp_service_account' não encontrado no secrets.toml.")
@@ -126,43 +127,113 @@ def salvar_historico(linhas):
     client = conectar_sheets()
     planilha = client.open_by_url(st.secrets["SPREADSHEET_URL"])
     aba = planilha.worksheet(NOME_ABA)
+    aba.append_rows(linhas)
+
+
+# =============================
+# PDF (REPORTLAB) - ESTILO ANTIGO
+# =============================
+def draw_wrapped(c, text, x, y, max_width, font_name="Helvetica", font_size=10, line_height=12):
+    text = clean_text(text)
+    linhas = simpleSplit(text, font_name, font_size, max_width)
     for linha in linhas:
-        aba.append_row(linha)
+        c.drawString(x, y, linha)
+        y -= line_height
+    return y
 
 
-# =============================
-# PDF
-# =============================
-class PDF(FPDF):
-    def header(self):
-        # Header azul
-        self.set_fill_color(0, 51, 102)
-        self.rect(0, 0, 210, 15, "F")
-        self.set_font("Arial", "B", 14)
-        self.set_text_color(255, 255, 255)
-        # Evitar travessão Unicode “–” -> usar "-"
-        title = f"Acompanhamento - Controladoria ({ACOMPANHADORA})"
-        self.cell(0, 10, safe_pdf_text(title), ln=True, align="C")
-        self.ln(5)
+def estimate_lines(text, font_name, font_size, max_width):
+    text = clean_text(text)
+    return simpleSplit(text, font_name, font_size, max_width)
 
 
-def gerar_pdf(dados):
-    pdf = PDF()
-    pdf.set_auto_page_break(auto=True, margin=15)
-    pdf.add_page()
-    pdf.set_font("Arial", size=10)
-    pdf.set_text_color(0, 0, 0)
+def gerar_pdf(dados_blocos, data_acomp, periodo, sistema):
+    buffer = io.BytesIO()
+    c = canvas.Canvas(buffer, pagesize=A4)
+    largura, altura = A4
 
-    for bloco in dados:
-        pdf.set_font("Arial", "B", 11)
-        pdf.multi_cell(0, 8, safe_pdf_text(bloco["titulo"]))
-        pdf.set_font("Arial", size=10)
-        for linha in bloco["conteudo"]:
-            pdf.multi_cell(0, 6, safe_pdf_text(linha))
-        pdf.ln(3)
+    AZUL = colors.HexColor("#0B2C4D")
+    PRETO = colors.black
 
-    # Retorna bytes
-    return pdf.output(dest="S").encode("latin-1", "replace")
+    margem_x = 2 * cm
+    margem_y = 2 * cm
+    y = altura - margem_y
+    pagina = 1
+
+    def cabecalho():
+        nonlocal y
+        c.setFillColor(AZUL)
+        c.rect(0, altura - 3 * cm, largura, 3 * cm, fill=1, stroke=0)
+
+        c.setFillColor(colors.white)
+        c.setFont("Helvetica-Bold", 18)
+        c.drawCentredString(largura / 2, altura - 1.8 * cm, "Acompanhamento - Controladoria")
+
+        c.setFont("Helvetica", 11)
+        c.drawCentredString(
+            largura / 2,
+            altura - 2.5 * cm,
+            f"Data do acompanhamento: {data_acomp} | Período: {periodo} | Sistema Financeiro: {sistema}"
+        )
+
+        c.setFillColor(PRETO)
+        y = altura - 4 * cm
+
+    def rodape():
+        c.setFont("Helvetica", 9)
+        c.drawCentredString(largura / 2, 1.2 * cm, f"Página {pagina}")
+
+    def nova_pagina():
+        nonlocal y, pagina
+        rodape()
+        c.showPage()
+        pagina += 1
+        cabecalho()
+
+    cabecalho()
+
+    max_width = largura - 4 * cm
+
+    for bloco in dados_blocos:
+        titulo = bloco.get("titulo", "")
+        linhas = bloco.get("conteudo", [])
+
+        # Estima altura do bloco para decidir quebra de página
+        # Título: fonte 11 bold, line_height ~ 14
+        titulo_lines = estimate_lines(titulo, "Helvetica-Bold", 11, max_width)
+        height_title = len(titulo_lines) * 14
+
+        # Conteúdo: fonte 10, line_height ~ 12
+        content_height = 0
+        for ln in linhas:
+            ln_lines = estimate_lines(ln, "Helvetica", 10, max_width)
+            content_height += len(ln_lines) * 12
+
+        # espaçamentos
+        estimated = height_title + content_height + 18  # 18 = folga entre blocos
+
+        if y - estimated < 2.5 * cm:
+            nova_pagina()
+
+        # Título
+        c.setFont("Helvetica-Bold", 11)
+        y = draw_wrapped(c, titulo, margem_x, y, max_width, font_name="Helvetica-Bold", font_size=11, line_height=14)
+
+        # Conteúdo
+        c.setFont("Helvetica", 10)
+        for ln in linhas:
+            y = draw_wrapped(c, ln, margem_x, y, max_width, font_name="Helvetica", font_size=10, line_height=12)
+
+        y -= 10  # espaço entre blocos
+
+        # Se estiver muito perto do rodapé, já pula
+        if y < 2.5 * cm:
+            nova_pagina()
+
+    rodape()
+    c.save()
+    buffer.seek(0)
+    return buffer.getvalue()
 
 
 # =============================
@@ -195,7 +266,7 @@ setores_selecionados = st.multiselect(
 for setor in setores_selecionados:
     st.markdown("---")
     st.subheader(f"Setor: {setor}")
-    responsavel = st.text_input(f"Responsável - {setor}", key=f"{setor}_responsavel")
+    st.text_input(f"Responsável - {setor}", key=f"{setor}_responsavel")
 
     if f"contas_{setor}" not in st.session_state:
         st.session_state[f"contas_{setor}"] = []
@@ -205,15 +276,19 @@ for setor in setores_selecionados:
 
     for i in range(len(st.session_state[f"contas_{setor}"])):
         tipo_conta = st.selectbox("Tipo de conta", TIPOS_CONTA, key=f"{setor}_tipo_{i}")
-        nome_conta = st.text_input("Nome da conta", key=f"{setor}_nome_{i}")
+        st.text_input("Nome da conta", key=f"{setor}_nome_{i}")
 
-        extrato = "" if tipo_conta == "Caixa" else st.text_area("Extrato bancário", key=f"{setor}_extrato_{i}")
-        saldo_caixa = st.text_input("Saldo do caixa", key=f"{setor}_saldo_{i}") if tipo_conta == "Caixa" else ""
+        if tipo_conta == "Caixa":
+            st.text_input("Saldo do caixa", key=f"{setor}_saldo_{i}")
+            st.text_area("Extrato bancário", value="", key=f"{setor}_extrato_{i}", disabled=True)
+        else:
+            st.text_area("Extrato bancário", key=f"{setor}_extrato_{i}")
+            st.text_input("Saldo do caixa", value="", key=f"{setor}_saldo_{i}", disabled=True)
 
-        conciliacoes = st.text_area("Conciliações pendentes", key=f"{setor}_conc_{i}")
-        provisoes = st.selectbox("Provisões", ["", "Sim", "Não"], key=f"{setor}_prov_{i}")
-        documentos = st.selectbox("Documentos", ["", "Sim", "Não", "Parcialmente"], key=f"{setor}_doc_{i}")
-        observacoes = st.text_area("Observações", key=f"{setor}_obs_{i}")
+        st.text_area("Conciliações pendentes", key=f"{setor}_conc_{i}")
+        st.selectbox("Provisões", ["", "Sim", "Não"], key=f"{setor}_prov_{i}")
+        st.selectbox("Documentos", ["", "Sim", "Não", "Parcialmente"], key=f"{setor}_doc_{i}")
+        st.text_area("Observações", key=f"{setor}_obs_{i}")
 
 # =============================
 # GERAR PDF
@@ -225,24 +300,24 @@ modo_geracao = st.radio(
 )
 
 if st.button("Gerar PDF", key="botao_gerar_pdf"):
-    todos_dados_pdf = []
+    todos_blocos_pdf = []
     linhas_sheets = []
 
     for setor in setores_selecionados:
-        responsavel = st.session_state.get(f"{setor}_responsavel", "")
+        responsavel = clean_text(st.session_state.get(f"{setor}_responsavel", ""))
 
         contas = st.session_state.get(f"contas_{setor}", [])
         for i in range(len(contas)):
-            tipo_conta = st.session_state.get(f"{setor}_tipo_{i}", "")
-            nome_conta = st.session_state.get(f"{setor}_nome_{i}", "")
-            extrato = st.session_state.get(f"{setor}_extrato_{i}", "")
-            conciliacoes = st.session_state.get(f"{setor}_conc_{i}", "")
-            saldo_caixa = st.session_state.get(f"{setor}_saldo_{i}", "")
-            provisoes = st.session_state.get(f"{setor}_prov_{i}", "")
-            documentos = st.session_state.get(f"{setor}_doc_{i}", "")
-            observacoes = st.session_state.get(f"{setor}_obs_{i}", "")
+            tipo_conta = clean_text(st.session_state.get(f"{setor}_tipo_{i}", ""))
+            nome_conta = clean_text(st.session_state.get(f"{setor}_nome_{i}", ""))
+            extrato = clean_text(st.session_state.get(f"{setor}_extrato_{i}", ""))
+            conciliacoes = clean_text(st.session_state.get(f"{setor}_conc_{i}", ""))
+            saldo_caixa = clean_text(st.session_state.get(f"{setor}_saldo_{i}", ""))
+            provisoes = clean_text(st.session_state.get(f"{setor}_prov_{i}", ""))
+            documentos = clean_text(st.session_state.get(f"{setor}_doc_{i}", ""))
+            observacoes = clean_text(st.session_state.get(f"{setor}_obs_{i}", ""))
 
-            # Linha para Sheets
+            # Sheets
             linhas_sheets.append([
                 data_hora,
                 ACOMPANHADORA,
@@ -260,7 +335,7 @@ if st.button("Gerar PDF", key="botao_gerar_pdf"):
                 observacoes,
             ])
 
-            # Conteúdo para PDF (só campos preenchidos)
+            # PDF (estilo antigo)
             conteudo_pdf = []
             if responsavel:
                 conteudo_pdf.append(f"Responsável: {responsavel}")
@@ -268,7 +343,7 @@ if st.button("Gerar PDF", key="botao_gerar_pdf"):
                 conteudo_pdf.append(f"Tipo de conta: {tipo_conta}")
             if nome_conta:
                 conteudo_pdf.append(f"Nome da conta: {nome_conta}")
-            if extrato:
+            if extrato and tipo_conta != "Caixa":
                 conteudo_pdf.append(f"Extrato bancário: {extrato}")
             if conciliacoes:
                 conteudo_pdf.append(f"Conciliações pendentes: {conciliacoes}")
@@ -283,16 +358,16 @@ if st.button("Gerar PDF", key="botao_gerar_pdf"):
 
             if conteudo_pdf:
                 titulo = f"{setor} - {nome_conta}" if nome_conta else setor
-                todos_dados_pdf.append({"titulo": titulo, "conteudo": conteudo_pdf})
+                todos_blocos_pdf.append({"titulo": titulo, "conteudo": conteudo_pdf})
 
-    if not todos_dados_pdf:
+    if not todos_blocos_pdf:
         st.error("❌ Nenhum dado preenchido para gerar o PDF.")
         st.stop()
 
     if modo_geracao == "Gerar PDF e salvar no histórico":
         salvar_historico(linhas_sheets)
 
-    pdf_bytes = gerar_pdf(todos_dados_pdf)
+    pdf_bytes = gerar_pdf(todos_blocos_pdf, data_hora, periodo, sistema_financeiro)
 
     st.download_button(
         "Baixar PDF",
@@ -301,4 +376,4 @@ if st.button("Gerar PDF", key="botao_gerar_pdf"):
         mime="application/pdf",
     )
 
-    st.success("PDF gerado com sucesso.")
+    st.success("✅ PDF gerado com sucesso.")
