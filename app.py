@@ -5,6 +5,7 @@ from google.oauth2.service_account import Credentials
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from reportlab.lib.units import cm
+from reportlab.lib import colors
 import io
 
 # =============================
@@ -63,48 +64,89 @@ def salvar_historico(linhas):
         aba.append_row(linha)
 
 # =============================
-# PDF COM REPORTLAB
+# PDF COM LAYOUT PROFISSIONAL
 # =============================
 def gerar_pdf(dados):
     buffer = io.BytesIO()
     c = canvas.Canvas(buffer, pagesize=A4)
     largura, altura = A4
 
+    AZUL = colors.HexColor("#0B2C4D")
+    CINZA = colors.HexColor("#F2F2F2")
+    PRETO = colors.black
+
     margem_x = 2 * cm
     y = altura - 2 * cm
+    pagina = 1
+
+    def cabecalho():
+        nonlocal y
+        c.setFillColor(AZUL)
+        c.rect(0, altura - 3 * cm, largura, 3 * cm, fill=1)
+
+        c.setFillColor(colors.white)
+        c.setFont("Helvetica-Bold", 18)
+        c.drawCentredString(
+            largura / 2,
+            altura - 1.8 * cm,
+            "Acompanhamento – Controladoria"
+        )
+
+        y = altura - 3.8 * cm
+        c.setFillColor(PRETO)
+
+    def rodape():
+        c.setFont("Helvetica", 9)
+        c.drawCentredString(
+            largura / 2,
+            1.2 * cm,
+            f"Página {pagina}"
+        )
 
     def nova_pagina():
-        nonlocal y
+        nonlocal pagina, y
+        rodape()
         c.showPage()
-        y = altura - 2 * cm
-        c.setFont("Helvetica", 10)
+        pagina += 1
+        cabecalho()
 
-    # TÍTULO
-    c.setFont("Helvetica-Bold", 16)
-    c.drawCentredString(largura / 2, y, "Acompanhamento – Controladoria")
-    y -= 1.2 * cm
-
+    cabecalho()
     c.setFont("Helvetica", 10)
 
     for bloco in dados:
-        if y < 3 * cm:
+        altura_card = 1.2 * cm + (len(bloco["conteudo"]) * 0.5 * cm)
+
+        if y - altura_card < 2.5 * cm:
             nova_pagina()
 
-        # TÍTULO DO BLOCO
-        c.setFont("Helvetica-Bold", 11)
-        c.drawString(margem_x, y, bloco["titulo"])
+        # CARD
+        c.setFillColor(CINZA)
+        c.roundRect(
+            margem_x,
+            y - altura_card,
+            largura - (margem_x * 2),
+            altura_card,
+            8,
+            fill=1
+        )
+
+        c.setFillColor(PRETO)
         y -= 0.6 * cm
 
+        # TÍTULO
+        c.setFont("Helvetica-Bold", 11)
+        c.drawString(margem_x + 0.4 * cm, y, bloco["titulo"])
+        y -= 0.6 * cm
+
+        # CONTEÚDO
         c.setFont("Helvetica", 10)
         for linha in bloco["conteudo"]:
-            if y < 2.5 * cm:
-                nova_pagina()
-
-            c.drawString(margem_x + 0.5 * cm, y, linha)
+            c.drawString(margem_x + 0.6 * cm, y, linha)
             y -= 0.45 * cm
 
-        y -= 0.4 * cm
+        y -= 0.5 * cm
 
+    rodape()
     c.save()
     buffer.seek(0)
     return buffer.getvalue()
@@ -135,7 +177,7 @@ for setor in setores_selecionados:
     st.markdown("---")
     st.subheader(f"Setor: {setor}")
 
-    responsavel = st.text_input(f"Responsável – {setor}", key=f"{setor}_responsavel")
+    st.text_input(f"Responsável – {setor}", key=f"{setor}_responsavel")
 
     if f"contas_{setor}" not in st.session_state:
         st.session_state[f"contas_{setor}"] = []
@@ -165,14 +207,14 @@ modo_geracao = st.radio(
 )
 
 if st.button("Gerar PDF"):
-    todos_dados_pdf = []
+    dados_pdf = []
     linhas_sheets = []
 
     for setor in setores_selecionados:
         responsavel = st.session_state.get(f"{setor}_responsavel", "")
 
         for i in range(len(st.session_state.get(f"contas_{setor}", []))):
-            dados = {
+            dados_pdf.append({
                 "titulo": f"{setor} – {st.session_state.get(f'{setor}_nome_{i}', '')}",
                 "conteudo": [
                     f"Responsável: {responsavel}",
@@ -184,9 +226,7 @@ if st.button("Gerar PDF"):
                     f"Documentos: {st.session_state.get(f'{setor}_doc_{i}', '')}",
                     f"Observações: {st.session_state.get(f'{setor}_obs_{i}', '')}",
                 ]
-            }
-
-            todos_dados_pdf.append(dados)
+            })
 
             linhas_sheets.append([
                 data_hora,
@@ -205,14 +245,14 @@ if st.button("Gerar PDF"):
                 st.session_state.get(f"{setor}_obs_{i}", ""),
             ])
 
-    if not todos_dados_pdf:
-        st.error("❌ Nenhum dado preenchido para gerar o PDF.")
+    if not dados_pdf:
+        st.error("❌ Nenhum dado preenchido.")
         st.stop()
 
     if modo_geracao == "Gerar PDF e salvar no histórico":
         salvar_historico(linhas_sheets)
 
-    pdf_bytes = gerar_pdf(todos_dados_pdf)
+    pdf_bytes = gerar_pdf(dados_pdf)
 
     st.download_button(
         "Baixar PDF",
