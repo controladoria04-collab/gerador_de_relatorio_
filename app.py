@@ -26,9 +26,6 @@ TIPOS_CONTA = [
     "Cartão de Crédito",
 ]
 
-NOME_ABA = "Histórico"
-
-
 # =============================
 # UTIL
 # =============================
@@ -128,10 +125,46 @@ def conectar_sheets():
 def salvar_historico(linhas):
     if not linhas:
         return
+
     client = conectar_sheets()
     planilha = client.open_by_url(st.secrets["SPREADSHEET_URL"])
-    aba = planilha.worksheet(NOME_ABA)
+
+    # Nome da aba = nome do acompanhador logado
+    nome_aba_user = ACOMPANHADORA  # ex: "Isabele Dandara"
+
+    try:
+        # tenta abrir a aba do acompanhador
+        aba = planilha.worksheet(nome_aba_user)
+    except gspread.exceptions.WorksheetNotFound:
+        # se não existir, cria
+        aba = planilha.add_worksheet(
+            title=nome_aba_user,
+            rows=2000,
+            cols=30
+        )
+
+        # cria cabeçalho (só na primeira vez)
+        cabecalho = [
+            "Data",
+            "Acompanhador(a)",
+            "Setor",
+            "Sistema Financeiro",
+            "Responsável",
+            "Período",
+            "Tipo de conta",
+            "Nome da conta",
+            "Extrato bancário",
+            "Conciliações pendentes",
+            "Saldo atual",
+            "Provisões",
+            "Documentos",
+            "Observações",
+        ]
+        aba.append_row(cabecalho)
+
+    # salva os dados
     aba.append_rows(linhas)
+
 
 
 # =============================
