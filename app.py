@@ -179,10 +179,10 @@ def gerar_pdf(dados, data_acomp, periodo, sistema, acompanhadora_nome):
         max_w = largura - 2 * cm
         linhas_info = simpleSplit(info, "Helvetica", 10, max_w)[:2]
 
-        y_info = altura - 2.55 * cm
+        y_info = altura - 2.35 * cm
         for ln in linhas_info:
             c.drawCentredString(largura / 2, y_info, ln)
-            y_info -= 0.45 * cm
+            y_info -= 0.40 * cm
 
         c.setFillColor(PRETO)
         y = altura - 4 * cm
@@ -218,17 +218,10 @@ def gerar_pdf(dados, data_acomp, periodo, sistema, acompanhadora_nome):
 
         # Contas dentro do setor
         for conta in bloco.get("contas", []):
-            titulo_conta = clean_text(conta.get("titulo_conta", ""))
-
-            # subtítulo da conta
-            if titulo_conta:
-                if y < 3.0 * cm:
-                    nova_pagina()
-                c.setFont("Helvetica-Bold", 11)
-                y = draw_paragraph(c, titulo_conta, margem_x, y, w_setor,
-                                   font_name="Helvetica-Bold", font_size=11, line_height=13)
-                y -= 0.2 * cm
-
+            # Cards (pergunta/resposta)
+            for item in conta.get("conteudo", []):
+                ...
+                
             # Cards (pergunta/resposta)
             for item in conta.get("conteudo", []):
                 pergunta = clean_text(item.get("pergunta", ""))
