@@ -37,7 +37,6 @@ def normalize_user(s: str) -> str:
 
 
 def format_nome_acompanhador(username: str) -> str:
-    # Isabele_Dandara -> Isabele Dandara
     return (username or "").replace("_", " ").strip().title()
 
 
@@ -136,7 +135,7 @@ def salvar_historico(linhas):
 
 
 # =============================
-# PDF (REPORTLAB) - LAYOUT IGUAL À IMAGEM + AGRUPADO POR SETOR
+# PDF (REPORTLAB) - 1 CONTA POR PÁGINA + RESPONSÁVEL 1X POR SETOR
 # =============================
 def draw_paragraph(c, texto, x, y, max_width, font_name="Helvetica", font_size=10, line_height=12):
     texto = clean_text(texto)
@@ -157,11 +156,14 @@ def gerar_pdf(dados, data_acomp, periodo, sistema, acompanhadora_nome):
     PRETO = colors.black
 
     margem_x = 2 * cm
-    y = altura - 2 * cm
     pagina = 1
 
+    # Larguras úteis
+    w_setor = largura - 4 * cm
+    w_pergunta = largura - 4.5 * cm
+    w_resposta = largura - 5 * cm
+
     def cabecalho():
-        nonlocal y
         c.setFillColor(AZUL)
         c.rect(0, altura - 3 * cm, largura, 3 * cm, fill=1, stroke=0)
 
@@ -179,91 +181,96 @@ def gerar_pdf(dados, data_acomp, periodo, sistema, acompanhadora_nome):
         max_w = largura - 2 * cm
         linhas_info = simpleSplit(info, "Helvetica", 10, max_w)[:2]
 
+        # sobe um pouco
         y_info = altura - 2.35 * cm
         for ln in linhas_info:
             c.drawCentredString(largura / 2, y_info, ln)
             y_info -= 0.40 * cm
 
         c.setFillColor(PRETO)
-        y = altura - 4 * cm
 
     def rodape():
+        nonlocal pagina
         c.setFont("Helvetica", 9)
         c.drawCentredString(largura / 2, 1.2 * cm, f"Página {pagina}")
 
     def nova_pagina():
-        nonlocal y, pagina
+        nonlocal pagina
         rodape()
         c.showPage()
         pagina += 1
         cabecalho()
 
+    # primeira página
     cabecalho()
 
-    # largura útil dentro das margens
-    w_setor = largura - 4 * cm
-    w_pergunta = largura - 4.5 * cm
-    w_resposta = largura - 5 * cm
+    # Y inicial abaixo do header
+    def reset_y():
+        return altura - 4 * cm
 
-    for bloco in dados:
-        # se está perto do fim antes do setor
-        if y < 3.5 * cm:
+    y = reset_y()
+
+    # Cada item em "dados" já representa UMA CONTA (porque vamos montar assim)
+    for idx, conta_bloco in enumerate(dados):
+        # cada conta começa em página nova, exceto a primeira
+        if idx > 0:
             nova_pagina()
+            y = reset_y()
 
-        # Título do setor (uma vez)
+        # Título do setor no topo da página
+        setor_nome = conta_bloco.get("setor", "")
         c.setFont("Helvetica-Bold", 12)
-        y = draw_paragraph(c, bloco.get("setor", ""), margem_x, y, w_setor,
+        y = draw_paragraph(c, setor_nome, margem_x, y, w_setor,
                            font_name="Helvetica-Bold", font_size=12, line_height=14)
         y -= 0.3 * cm
 
-        # Contas dentro do setor
-        for conta in bloco.get("contas", []):
-            # Cards (pergunta/resposta)
-            for item in conta.get("conteudo", []):
-                ...
-                
-            # Cards (pergunta/resposta)
-            for item in conta.get("conteudo", []):
-                pergunta = clean_text(item.get("pergunta", ""))
-                resposta = clean_text(item.get("resposta", ""))
+        # Cards (pergunta/resposta)
+        for item in conta_bloco.get("conteudo", []):
+            pergunta = clean_text(item.get("pergunta", ""))
+            resposta = clean_text(item.get("resposta", ""))
 
-                linhas_pergunta = simpleSplit(pergunta, "Helvetica-Bold", 11, w_pergunta)
-                linhas_resposta = simpleSplit(resposta, "Helvetica", 10, w_resposta)
+            linhas_pergunta = simpleSplit(pergunta, "Helvetica-Bold", 11, w_pergunta)
+            linhas_resposta = simpleSplit(resposta, "Helvetica", 10, w_resposta)
 
-                altura_pergunta_cm = len(linhas_pergunta) * (13 / 28.35)
-                altura_resposta_cm = max(1, len(linhas_resposta)) * (12 / 28.35)
+            altura_pergunta_cm = len(linhas_pergunta) * (13 / 28.35)
+            altura_resposta_cm = max(1, len(linhas_resposta)) * (12 / 28.35)
 
-                padding_top = 0.5
-                padding_mid = 0.15
-                padding_bottom = 0.5
+            padding_top = 0.5
+            padding_mid = 0.15
+            padding_bottom = 0.5
 
-                altura_card_cm = padding_top + altura_pergunta_cm + padding_mid + altura_resposta_cm + padding_bottom
-                altura_card = altura_card_cm * cm
+            altura_card_cm = padding_top + altura_pergunta_cm + padding_mid + altura_resposta_cm + padding_bottom
+            altura_card = altura_card_cm * cm
 
-                if y - altura_card < 2.5 * cm:
-                    nova_pagina()
+            # se um card muito grande não couber, quebra página (ainda 1 conta por página continua,
+            # só que a conta vai "espalhar" em mais de uma página)
+            if y - altura_card < 2.5 * cm:
+                nova_pagina()
+                y = reset_y()
 
-                c.setFillColor(CINZA)
-                c.roundRect(margem_x, y - altura_card, largura - 4 * cm, altura_card, 6, fill=1, stroke=1)
-                c.setFillColor(PRETO)
+                # reimprime setor no topo da página seguinte (pra manter contexto)
+                c.setFont("Helvetica-Bold", 12)
+                y = draw_paragraph(c, setor_nome, margem_x, y, w_setor,
+                                   font_name="Helvetica-Bold", font_size=12, line_height=14)
+                y -= 0.3 * cm
 
-                y -= padding_top * cm
+            c.setFillColor(CINZA)
+            c.roundRect(margem_x, y - altura_card, largura - 4 * cm, altura_card, 6, fill=1, stroke=1)
+            c.setFillColor(PRETO)
 
-                c.setFont("Helvetica-Bold", 11)
-                y = draw_paragraph(c, pergunta, margem_x + 0.3 * cm, y, w_pergunta,
-                                   font_name="Helvetica-Bold", font_size=11, line_height=13)
+            y -= padding_top * cm
 
-                y -= padding_mid * cm
+            c.setFont("Helvetica-Bold", 11)
+            y = draw_paragraph(c, pergunta, margem_x + 0.3 * cm, y, w_pergunta,
+                               font_name="Helvetica-Bold", font_size=11, line_height=13)
 
-                c.setFont("Helvetica", 10)
-                y = draw_paragraph(c, resposta, margem_x + 0.5 * cm, y, w_resposta,
-                                   font_name="Helvetica", font_size=10, line_height=12)
+            y -= padding_mid * cm
 
-                y -= padding_bottom * cm
+            c.setFont("Helvetica", 10)
+            y = draw_paragraph(c, resposta, margem_x + 0.5 * cm, y, w_resposta,
+                               font_name="Helvetica", font_size=10, line_height=12)
 
-            y -= 0.6 * cm  # espaço entre contas
-
-        y -= 0.4 * cm  # espaço entre setores
+            y -= padding_bottom * cm
 
     rodape()
     c.save()
@@ -320,7 +327,7 @@ for setor in setores_selecionados:
 
         st.text_area("Conciliações pendentes", key=f"{setor}_conc_{i}")
 
-        # ✅ sempre editável e renomeado
+        # sempre editável e renomeado
         st.text_input("Saldo atual", key=f"{setor}_saldo_{i}")
 
         st.selectbox("Provisões", ["", "Sim", "Não"], key=f"{setor}_prov_{i}")
@@ -338,7 +345,9 @@ modo_geracao = st.radio(
 
 if st.button("Gerar PDF", key="botao_gerar_pdf"):
     linhas_sheets = []
-    dados_pdf_por_setor = {}
+
+    # ✅ Agora o PDF é uma lista "plana": cada item = UMA CONTA (uma página)
+    dados_pdf = []
 
     for setor in setores_selecionados:
         responsavel = clean_text(st.session_state.get(f"{setor}_responsavel", ""))
@@ -372,8 +381,11 @@ if st.button("Gerar PDF", key="botao_gerar_pdf"):
                 observacoes,
             ])
 
+            # PDF: responsável só na primeira conta do setor
+            responsavel_pdf = responsavel if i == 0 else ""
+
             conteudo = [
-                {"pergunta": "Responsável", "resposta": responsavel},
+                {"pergunta": "Responsável", "resposta": responsavel_pdf},
                 {"pergunta": "Tipo de conta", "resposta": tipo_conta},
                 {"pergunta": "Nome da conta", "resposta": nome_conta},
                 {"pergunta": "Extrato bancário", "resposta": "" if tipo_conta == "Caixa" else extrato},
@@ -384,23 +396,16 @@ if st.button("Gerar PDF", key="botao_gerar_pdf"):
                 {"pergunta": "Observações", "resposta": observacoes},
             ]
 
-            # ✅ remove campos vazios do PDF
+            # remove campos vazios do PDF
             conteudo = [x for x in conteudo if clean_text(x.get("resposta", ""))]
 
             if not conteudo:
                 continue
 
-            if setor not in dados_pdf_por_setor:
-                dados_pdf_por_setor[setor] = {"setor": setor, "contas": []}
-
-            titulo_conta = nome_conta if nome_conta else f"Conta {i + 1}"
-            dados_pdf_por_setor[setor]["contas"].append({
-                "titulo_conta": titulo_conta,
+            dados_pdf.append({
+                "setor": setor,
                 "conteudo": conteudo
             })
-
-    # lista na ordem selecionada
-    dados_pdf = [dados_pdf_por_setor[s] for s in setores_selecionados if s in dados_pdf_por_setor]
 
     if not dados_pdf:
         st.error("❌ Nenhum dado preenchido para gerar o PDF.")
