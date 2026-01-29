@@ -313,26 +313,55 @@ for setor in setores_selecionados:
     if f"contas_{setor}" not in st.session_state:
         st.session_state[f"contas_{setor}"] = []
 
-    if st.button(f"Adicionar conta – {setor}", key=f"botao_add_{setor}"):
-        st.session_state[f"contas_{setor}"].append({})
-
+    # Renderiza as contas existentes
     for i in range(len(st.session_state[f"contas_{setor}"])):
-        tipo_conta = st.selectbox("Tipo de conta", TIPOS_CONTA, key=f"{setor}_tipo_{i}")
+        st.selectbox("Tipo de conta", TIPOS_CONTA, key=f"{setor}_tipo_{i}")
         st.text_input("Nome da conta", key=f"{setor}_nome_{i}")
 
-        if tipo_conta != "Caixa":
+        if st.session_state.get(f"{setor}_tipo_{i}") != "Caixa":
             st.text_area("Extrato bancário", key=f"{setor}_extrato_{i}")
         else:
             st.session_state.setdefault(f"{setor}_extrato_{i}", "")
 
         st.text_area("Conciliações pendentes", key=f"{setor}_conc_{i}")
-
-        # sempre editável e renomeado
         st.text_input("Saldo atual", key=f"{setor}_saldo_{i}")
-
         st.selectbox("Provisões", ["", "Sim", "Não"], key=f"{setor}_prov_{i}")
         st.selectbox("Documentos", ["", "Sim", "Não", "Parcialmente"], key=f"{setor}_doc_{i}")
         st.text_area("Observações", key=f"{setor}_obs_{i}")
+
+        st.markdown("")
+
+    # ✅ Botões no final do setor
+    col_add, col_rem = st.columns([1, 1])
+    with col_add:
+        if st.button(f"➕ Adicionar conta – {setor}", key=f"botao_add_{setor}"):
+            st.session_state[f"contas_{setor}"].append({})
+            st.rerun()
+
+    with col_rem:
+        # só habilita se existir pelo menos 1 conta
+        disabled = len(st.session_state[f"contas_{setor}"]) == 0
+        if st.button(f"🗑️ Remover última conta – {setor}", key=f"botao_rem_{setor}", disabled=disabled):
+            # remove a última conta
+            idx = len(st.session_state[f"contas_{setor}"]) - 1
+            st.session_state[f"contas_{setor}"].pop()
+
+            # (Opcional, mas recomendado) limpa os campos do session_state dessa conta removida
+            keys_to_delete = [
+                f"{setor}_tipo_{idx}",
+                f"{setor}_nome_{idx}",
+                f"{setor}_extrato_{idx}",
+                f"{setor}_conc_{idx}",
+                f"{setor}_saldo_{idx}",
+                f"{setor}_prov_{idx}",
+                f"{setor}_doc_{idx}",
+                f"{setor}_obs_{idx}",
+            ]
+            for k in keys_to_delete:
+                if k in st.session_state:
+                    del st.session_state[k]
+
+            st.rerun()
 
 # =============================
 # GERAR PDF
