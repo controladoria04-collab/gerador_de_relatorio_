@@ -42,7 +42,6 @@ def format_nome_acompanhador(username: str) -> str:
 
 
 def clean_text(s: str) -> str:
-    # remove tabs e caracteres invisíveis que atrapalham quebra de linha
     return (s or "").replace("\t", " ").replace("\u00A0", " ").replace("\u200b", "").strip()
 
 
@@ -137,7 +136,7 @@ def salvar_historico(linhas):
 
 
 # =============================
-# PDF (REPORTLAB) - LAYOUT CARDS (IGUAL IMAGEM)
+# PDF (REPORTLAB) - LAYOUT IGUAL À IMAGEM + AGRUPADO POR SETOR
 # =============================
 def draw_paragraph(c, texto, x, y, max_width, font_name="Helvetica", font_size=10, line_height=12):
     texto = clean_text(texto)
@@ -170,12 +169,20 @@ def gerar_pdf(dados, data_acomp, periodo, sistema, acompanhadora_nome):
         c.setFont("Helvetica-Bold", 18)
         c.drawCentredString(largura / 2, altura - 1.8 * cm, "Acompanhamento – Controladoria")
 
-        c.setFont("Helvetica", 11)
-        c.drawCentredString(
-            largura / 2,
-            altura - 2.5 * cm,
-            f"Acompanhador(a): {acompanhadora_nome} | Data do acompanhamento: {data_acomp} | Período: {periodo} | Sistema Financeiro: {sistema}"
+        c.setFont("Helvetica", 10)
+        info = (
+            f"Acompanhador(a): {acompanhadora_nome} | "
+            f"Data do acompanhamento: {data_acomp} | "
+            f"Período: {periodo} | "
+            f"Sistema Financeiro: {sistema}"
         )
+        max_w = largura - 2 * cm
+        linhas_info = simpleSplit(info, "Helvetica", 10, max_w)[:2]
+
+        y_info = altura - 2.55 * cm
+        for ln in linhas_info:
+            c.drawCentredString(largura / 2, y_info, ln)
+            y_info -= 0.45 * cm
 
         c.setFillColor(PRETO)
         y = altura - 4 * cm
@@ -192,90 +199,78 @@ def gerar_pdf(dados, data_acomp, periodo, sistema, acompanhadora_nome):
         cabecalho()
 
     cabecalho()
-    c.setFont("Helvetica", 10)
+
+    # largura útil dentro das margens
+    w_setor = largura - 4 * cm
+    w_pergunta = largura - 4.5 * cm
+    w_resposta = largura - 5 * cm
 
     for bloco in dados:
-        # Se estiver muito perto do fim antes de escrever o nome do setor
+        # se está perto do fim antes do setor
         if y < 3.5 * cm:
             nova_pagina()
 
-        # Nome do setor
+        # Título do setor (uma vez)
         c.setFont("Helvetica-Bold", 12)
-        y = draw_paragraph(
-            c,
-            bloco.get("setor", ""),
-            margem_x,
-            y,
-            largura - 4 * cm,
-            font_name="Helvetica-Bold",
-            font_size=12,
-            line_height=14
-        )
+        y = draw_paragraph(c, bloco.get("setor", ""), margem_x, y, w_setor,
+                           font_name="Helvetica-Bold", font_size=12, line_height=14)
         y -= 0.3 * cm
 
-        # Cards pergunta/resposta (layout igual imagem)
-        for item in bloco.get("conteudo", []):
-            pergunta = clean_text(item.get("pergunta", ""))
-            resposta = clean_text(item.get("resposta", ""))
+        # Contas dentro do setor
+        for conta in bloco.get("contas", []):
+            titulo_conta = clean_text(conta.get("titulo_conta", ""))
 
-            # Calcula linhas reais para o card ter altura correta (sem estourar)
-            linhas_pergunta = simpleSplit(pergunta, "Helvetica-Bold", 11, largura - 4.5 * cm)
-            linhas_resposta = simpleSplit(resposta, "Helvetica", 10, largura - 5 * cm)
+            # subtítulo da conta
+            if titulo_conta:
+                if y < 3.0 * cm:
+                    nova_pagina()
+                c.setFont("Helvetica-Bold", 11)
+                y = draw_paragraph(c, titulo_conta, margem_x, y, w_setor,
+                                   font_name="Helvetica-Bold", font_size=11, line_height=13)
+                y -= 0.2 * cm
 
-            # Alturas aproximadas em cm (usando line heights do draw)
-            altura_pergunta_cm = len(linhas_pergunta) * (13 / 28.35)  # 13pt -> cm
-            altura_resposta_cm = max(1, len(linhas_resposta)) * (12 / 28.35)  # garante espaço mesmo se vazio
+            # Cards (pergunta/resposta)
+            for item in conta.get("conteudo", []):
+                pergunta = clean_text(item.get("pergunta", ""))
+                resposta = clean_text(item.get("resposta", ""))
 
-            padding_top = 0.5
-            padding_mid = 0.15
-            padding_bottom = 0.5
+                linhas_pergunta = simpleSplit(pergunta, "Helvetica-Bold", 11, w_pergunta)
+                linhas_resposta = simpleSplit(resposta, "Helvetica", 10, w_resposta)
 
-            altura_card_cm = padding_top + altura_pergunta_cm + padding_mid + altura_resposta_cm + padding_bottom
-            altura_card = altura_card_cm * cm
+                altura_pergunta_cm = len(linhas_pergunta) * (13 / 28.35)
+                altura_resposta_cm = max(1, len(linhas_resposta)) * (12 / 28.35)
 
-            # Quebra página se o card não couber
-            if y - altura_card < 2.5 * cm:
-                nova_pagina()
+                padding_top = 0.5
+                padding_mid = 0.15
+                padding_bottom = 0.5
 
-            # Card
-            c.setFillColor(CINZA)
-            c.roundRect(margem_x, y - altura_card, largura - 4 * cm, altura_card, 6, fill=1, stroke=1)
-            c.setFillColor(PRETO)
+                altura_card_cm = padding_top + altura_pergunta_cm + padding_mid + altura_resposta_cm + padding_bottom
+                altura_card = altura_card_cm * cm
 
-            # Conteúdo do card
-            y -= padding_top * cm
+                if y - altura_card < 2.5 * cm:
+                    nova_pagina()
 
-            # Pergunta
-            c.setFont("Helvetica-Bold", 11)
-            y = draw_paragraph(
-                c,
-                pergunta,
-                margem_x + 0.3 * cm,
-                y,
-                largura - 4.5 * cm,
-                font_name="Helvetica-Bold",
-                font_size=11,
-                line_height=13
-            )
+                c.setFillColor(CINZA)
+                c.roundRect(margem_x, y - altura_card, largura - 4 * cm, altura_card, 6, fill=1, stroke=1)
+                c.setFillColor(PRETO)
 
-            y -= padding_mid * cm
+                y -= padding_top * cm
 
-            # Resposta
-            c.setFont("Helvetica", 10)
-            y = draw_paragraph(
-                c,
-                resposta,
-                margem_x + 0.5 * cm,
-                y,
-                largura - 5 * cm,
-                font_name="Helvetica",
-                font_size=10,
-                line_height=12
-            )
+                c.setFont("Helvetica-Bold", 11)
+                y = draw_paragraph(c, pergunta, margem_x + 0.3 * cm, y, w_pergunta,
+                                   font_name="Helvetica-Bold", font_size=11, line_height=13)
 
-            y -= padding_bottom * cm
+                y -= padding_mid * cm
 
-        y -= 0.8 * cm
+                c.setFont("Helvetica", 10)
+                y = draw_paragraph(c, resposta, margem_x + 0.5 * cm, y, w_resposta,
+                                   font_name="Helvetica", font_size=10, line_height=12)
+
+                y -= padding_bottom * cm
+
+            y -= 0.6 * cm  # espaço entre contas
+
+        y -= 0.4 * cm  # espaço entre setores
 
     rodape()
     c.save()
@@ -325,17 +320,14 @@ for setor in setores_selecionados:
         tipo_conta = st.selectbox("Tipo de conta", TIPOS_CONTA, key=f"{setor}_tipo_{i}")
         st.text_input("Nome da conta", key=f"{setor}_nome_{i}")
 
-        # Extrato só para não-caixa (mantém sua regra)
         if tipo_conta != "Caixa":
             st.text_area("Extrato bancário", key=f"{setor}_extrato_{i}")
         else:
-            # cria a key mesmo assim (pra não faltar no PDF/Sheets)
             st.session_state.setdefault(f"{setor}_extrato_{i}", "")
 
         st.text_area("Conciliações pendentes", key=f"{setor}_conc_{i}")
 
-        # ✅ Ajuste pedido: antes era "Saldo do caixa" e desativado nos bancos.
-        # Agora é "Saldo atual" e SEMPRE editável.
+        # ✅ sempre editável e renomeado
         st.text_input("Saldo atual", key=f"{setor}_saldo_{i}")
 
         st.selectbox("Provisões", ["", "Sim", "Não"], key=f"{setor}_prov_{i}")
@@ -352,8 +344,8 @@ modo_geracao = st.radio(
 )
 
 if st.button("Gerar PDF", key="botao_gerar_pdf"):
-    dados_pdf = []
     linhas_sheets = []
+    dados_pdf_por_setor = {}
 
     for setor in setores_selecionados:
         responsavel = clean_text(st.session_state.get(f"{setor}_responsavel", ""))
@@ -369,7 +361,7 @@ if st.button("Gerar PDF", key="botao_gerar_pdf"):
             documentos = clean_text(st.session_state.get(f"{setor}_doc_{i}", ""))
             observacoes = clean_text(st.session_state.get(f"{setor}_obs_{i}", ""))
 
-            # Sheets (mantém as colunas; só estamos usando "saldo_atual" no lugar do antigo saldo_caixa)
+            # Sheets (mantém)
             linhas_sheets.append([
                 data_hora,
                 ACOMPANHADORA,
@@ -387,23 +379,35 @@ if st.button("Gerar PDF", key="botao_gerar_pdf"):
                 observacoes,
             ])
 
-            # PDF no layout de cards (igual imagem)
-            bloco = {
-                "setor": setor,
-                "conteudo": [
-                    {"pergunta": "Responsável", "resposta": responsavel},
-                    {"pergunta": "Tipo de conta", "resposta": tipo_conta},
-                    {"pergunta": "Nome da conta", "resposta": nome_conta},
-                    {"pergunta": "Extrato bancário", "resposta": "" if tipo_conta == "Caixa" else extrato},
-                    {"pergunta": "Conciliações pendentes", "resposta": conciliacoes},
-                    {"pergunta": "Saldo atual", "resposta": saldo_atual},
-                    {"pergunta": "Provisões", "resposta": provisoes},
-                    {"pergunta": "Documentos", "resposta": documentos},
-                    {"pergunta": "Observações", "resposta": observacoes},
-                ]
-            }
+            conteudo = [
+                {"pergunta": "Responsável", "resposta": responsavel},
+                {"pergunta": "Tipo de conta", "resposta": tipo_conta},
+                {"pergunta": "Nome da conta", "resposta": nome_conta},
+                {"pergunta": "Extrato bancário", "resposta": "" if tipo_conta == "Caixa" else extrato},
+                {"pergunta": "Conciliações pendentes", "resposta": conciliacoes},
+                {"pergunta": "Saldo atual", "resposta": saldo_atual},
+                {"pergunta": "Provisões", "resposta": provisoes},
+                {"pergunta": "Documentos", "resposta": documentos},
+                {"pergunta": "Observações", "resposta": observacoes},
+            ]
 
-            dados_pdf.append(bloco)
+            # ✅ remove campos vazios do PDF
+            conteudo = [x for x in conteudo if clean_text(x.get("resposta", ""))]
+
+            if not conteudo:
+                continue
+
+            if setor not in dados_pdf_por_setor:
+                dados_pdf_por_setor[setor] = {"setor": setor, "contas": []}
+
+            titulo_conta = nome_conta if nome_conta else f"Conta {i + 1}"
+            dados_pdf_por_setor[setor]["contas"].append({
+                "titulo_conta": titulo_conta,
+                "conteudo": conteudo
+            })
+
+    # lista na ordem selecionada
+    dados_pdf = [dados_pdf_por_setor[s] for s in setores_selecionados if s in dados_pdf_por_setor]
 
     if not dados_pdf:
         st.error("❌ Nenhum dado preenchido para gerar o PDF.")
